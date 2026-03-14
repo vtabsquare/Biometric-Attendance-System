@@ -19,10 +19,12 @@ app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET")
 
 db_config = {
-    'host': os.getenv("DB_HOST", "localhost"),      # Use live host, or localhost if none
-    'user': os.getenv("DB_USER", "root"),           # Use live user, or root if none
-    'password': os.getenv("DB_PASSWORD"),           # Pulls from your .env
-    'database': os.getenv("DB_NAME", "faceauth_db") # Use live DB name, or local if none
+    'host': os.getenv("DB_HOST"),
+    'user': os.getenv("DB_USER"),
+    'password': os.getenv("DB_PASSWORD"),
+    'database': os.getenv("DB_NAME", "test"),
+    'port': int(os.getenv("DB_PORT", 4000)),  # Added this!
+    'ssl_ca': os.getenv("SSL_CA", "/etc/ssl/certs/ca-certificates.crt") # Added this for TiDB
 }
 
 BREVO_API_KEY = os.getenv("BREVO_API_KEY")
