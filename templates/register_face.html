@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Register Face - FaceAuth</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='3') }}">
+</head>
+<body class="auth-body">
+    <div class="auth-card">
+        <h2>Face Registration</h2>
+        <p style="color:var(--text-muted); margin-bottom:20px;">Scan your face to activate your profile.</p>
+        <div class="scanner-container">
+            <div class="scan-line"></div>
+            <video id="video" autoplay muted playsinline></video>
+            <canvas id="canvas" style="display:none;"></canvas>
+        </div>
+        <button id="rbtn" class="btn-primary">Capture & Register</button>
+    </div>
+    <script>
+        const video = document.getElementById('video');
+        navigator.mediaDevices.getUserMedia({ video: true }).then(s => video.srcObject = s);
+        document.getElementById('rbtn').onclick = function() {
+            const canvas = document.getElementById('canvas');
+            canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+            canvas.getContext('2d').drawImage(video, 0, 0);
+            fetch('/process_registration', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ image: canvas.toDataURL('image/jpeg') })
+            }).then(r => r.json()).then(d => {
+                if(d.success) window.location.href = "/success";
+                else alert(d.message);
+            });
+        };
+    </script>
+</body>
+</html>

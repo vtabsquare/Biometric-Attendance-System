@@ -1,0 +1,131 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+:root {
+    --primary: #2563eb;
+    --primary-soft: #eff6ff;
+    --bg-main: #f8fafc;
+    --sidebar-w: 260px;
+    --text-dark: #0f172a;
+    --text-muted: #64748b;
+    --border: #e2e8f0;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Plus Jakarta Sans', sans-serif; }
+body { background-color: var(--bg-main); color: var(--text-dark); min-height: 100vh; }
+
+/* --- AUTH PAGES (Login, Reset, Verify) --- */
+.auth-body { display: flex !important; align-items: center; justify-content: center; min-height: 100vh; }
+.auth-card { background: white; padding: 40px; border-radius: 28px; width: 100%; max-width: 420px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.05); border: 1px solid var(--border); text-align: center; }
+
+/* --- DASHBOARD LAYOUT --- */
+.dashboard-wrapper { display: flex !important; min-height: 100vh; width: 100%; }
+.sidebar { width: var(--sidebar-w); background: white; border-right: 1px solid var(--border); padding: 32px 24px; position: fixed; height: 100vh; left: 0; top: 0; display: flex; flex-direction: column; }
+.main-content { margin-left: var(--sidebar-w); flex: 1; padding: 40px 60px; }
+
+/* --- PROFESSIONAL SIDEBAR NAV (No Underlines) --- */
+.nav-link { 
+    display: flex; 
+    align-items: center; 
+    padding: 12px 16px; 
+    color: #64748b; 
+    text-decoration: none; 
+    border-radius: 12px; 
+    font-weight: 600; 
+    margin-bottom: 8px; 
+    transition: 0.3s; 
+    border: 1px solid transparent;
+}
+.nav-link:hover { background: #f1f5f9; color: var(--primary); }
+.nav-link.active { background: var(--primary-soft); color: var(--primary); border-color: #dbeafe; }
+
+/* --- UI COMPONENTS --- */
+.form-group { text-align: left; margin-bottom: 20px; }
+label { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px; display: block; }
+
+.input-container { position: relative !important; display: flex; align-items: center; }
+.input-container input { padding-right: 48px !important; }
+
+input, select { width: 100%; padding: 14px; background: #f1f5f9; border: 1.5px solid transparent; border-radius: 12px; outline: none; transition: 0.2s; }
+input:focus { border-color: var(--primary); background: white; }
+
+.btn-primary { background: var(--primary); color: white; border: none; padding: 14px; border-radius: 12px; font-weight: 700; cursor: pointer; width: 100%; transition: 0.2s; display: flex; justify-content: center; }
+.btn-primary:hover { background: #1d4ed8; transform: translateY(-1px); }
+
+/* --- DYNAMIC ALERT BOXES (Green for Success, Red for Error) --- */
+.alert-box { padding: 12px 16px; border-radius: 12px; margin-bottom: 24px; font-size: 13px; font-weight: 600; text-align: center; border: 1px solid transparent; }
+.alert-success { background-color: #f0fdf4; color: #166534; border-color: #bbf7d0; }
+.alert-error { background-color: #fef2f2; color: #991b1b; border-color: #fecaca; }
+
+/* --- EYE ICON TOGGLE --- */
+.toggle-password {
+    position: absolute !important;
+    right: 12px !important;
+    background: transparent !important;
+    border: none !important;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted);
+    padding: 4px;
+    z-index: 10;
+}
+
+/* --- ADMIN ACTIVITY STYLES --- */
+.activity-text { font-size: 13px; font-weight: 500; color: #1e293b; }
+.location-tag { font-size: 11px; background: #f1f5f9; padding: 2px 8px; border-radius: 4px; color: #64748b; display: inline-block; margin-top: 4px; }
+.status-dot { height: 8px; width: 8px; border-radius: 50%; display: inline-block; margin-right: 5px; }
+
+/* --- SCANNER & BIOMETRICS --- */
+.scanner-container { width: 320px; height: 240px; background: #000; border-radius: 20px; overflow: hidden; position: relative; border: 4px solid var(--border); margin: 20px auto; }
+#video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+.scan-line { position: absolute; width: 100%; height: 4px; background: var(--primary); box-shadow: 0 0 15px var(--primary); animation: scan 2.5s infinite linear; }
+@keyframes scan { 0% { top: 0; } 100% { top: 100%; } }
+
+/* --- BADGES & MODALS --- */
+.badge { padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 700; display: inline-block; }
+.badge-success { background: #dcfce7; color: #15803d; }
+.badge-primary { background: #e0f2fe; color: #0369a1; }
+
+.modal-overlay { 
+    position: fixed; 
+    inset: 0; 
+    background: rgba(15,23,42,0.6); 
+    display: flex; 
+    align-items: center; 
+    justify-content: center; 
+    z-index: 9999; 
+    backdrop-filter: blur(4px);
+}
+
+.hidden { display: none !important; }
+
+
+/* --- ADMIN DASHBOARD MAP LINKS (Scoped) --- */
+.location-link {
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #fff1f2; /* Light red theme for map pin */
+    color: #e11d48; /* Map pin red */
+    padding: 6px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    border: 1px solid #fecdd3;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    margin-top: 4px;
+}
+
+.location-link:hover {
+    background: #e11d48;
+    color: white !important;
+    border-color: #e11d48;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(225, 29, 72, 0.2);
+}
+
+.location-link svg {
+    flex-shrink: 0;
+}

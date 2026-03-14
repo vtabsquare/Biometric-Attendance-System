@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Login - FaceAuth Portal</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='9') }}">
+</head>
+<body class="auth-body">
+    <div class="auth-card">
+        <div style="background:var(--primary); width:50px; height:50px; border-radius:12px; display:flex; align-items:center; justify-content:center; margin:0 auto 20px; color:white;">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+        </div>
+        
+        <h2>FaceAuth Portal</h2>
+        <p style="color:var(--text-muted); font-size:14px; margin-bottom:30px;">Sign in to your workspace</p>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div class="alert-box {{ 'alert-success' if category == 'success' else 'alert-error' }}">
+                {{ message }}
+              </div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
+
+        <form action="{{ url_for('login') }}" method="POST">
+            <div class="form-group">
+                <label>Work Email</label>
+                <input type="email" name="email" placeholder="name@company.com" required>
+            </div>
+            
+            <div class="form-group">
+                <div style="display:flex; justify-content:space-between;">
+                    <label>Password</label>
+                    <a href="{{ url_for('forgot_password') }}" style="font-size:11px; font-weight:700; color:var(--primary); text-decoration:none;">FORGOT?</a>
+                </div>
+                <div class="input-container">
+                    <input type="password" name="password" id="login_pw" placeholder="••••••••" required>
+                    <button type="button" class="toggle-password" onclick="toggle('login_pw')">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                            <circle cx="12" cy="12" r="3"></circle>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            
+            <button type="submit" class="btn-primary">Sign In →</button>
+        </form>
+    </div>
+
+    <script>
+        function toggle(id) {
+            const x = document.getElementById(id);
+            x.type = x.type === 'password' ? 'text' : 'password';
+        }
+    </script>
+</body>
+</html>
