@@ -97,17 +97,15 @@ def login():
                     'first_name': user_data[0], 
                     'last_name': user_data[1], 
                     'role': user_data[5],
-                    'verified': False # Reset face verification status on login
+                    'verified': False 
                 })
                 
-                # Force password reset for new employees (is_temp = '1')
                 if len(user_data) > 7 and user_data[7] == "1":
                     return redirect(url_for('reset_password'))
                 
                 if user_data[5] == 'admin': 
                     return redirect(url_for('admin_dashboard'))
                 
-                # Employee check for face registration
                 if len(user_data) < 7 or not user_data[6]:
                     flash("Face not registered. Please contact Admin.", "error")
                     return redirect(url_for('login'))
@@ -131,12 +129,11 @@ def send_otp():
         cell = user_sheet.find(email, in_column=3)
         otp = random.randint(100000, 999999)
         otp_store[email] = {"otp": otp, "expiry": time.time() + 300}
-        html = f"<h2>OTP: {otp}</h2><p>Your OTP for password reset is valid for 5 mins.</p>"
-        if send_email_via_brevo(email, "Password Reset OTP", html):
-            return jsonify({"success": True})
+        html = f"<h2>OTP: {otp}</h2><p>Your OTP is valid for 5 mins.</p>"
+        send_email_via_brevo(email, "Password Reset OTP", html)
+        return jsonify({"success": True})
     except:
         return jsonify({"success": False, "message": "Email not found"})
-    return jsonify({"success": False})
 
 @app.route('/verify-otp', methods=['POST'])
 def verify_otp():
@@ -146,9 +143,9 @@ def verify_otp():
         if time.time() < otp_store[email]['expiry']:
             user_sheet, _ = get_sheets()
             cell = user_sheet.find(email, in_column=3)
-            session['reset_user_row'] = cell.row # Store row for password update
+            session['reset_user_row'] = cell.row 
             return jsonify({"success": True})
-    return jsonify({"success": False, "message": "Invalid or expired OTP"})
+    return jsonify({"success": False, "message": "Invalid OTP"})
 
 @app.route('/reset-password')
 def reset_password(): 
@@ -156,22 +153,20 @@ def reset_password():
 
 @app.route('/update_password', methods=['POST'])
 def update_password():
-    # Works for both "Forgot Password" and "First Time Login"
     row_id = session.get('user_row') or session.get('reset_user_row')
     if not row_id: return redirect(url_for('login'))
     
     new_pass = request.form.get('password')
     if not is_password_strong(new_pass):
-        flash("Weak Password! 8+ chars, 1 Upper, 1 Special Required.", "error")
+        flash("Password too weak!", "error")
         return redirect(url_for('reset_password'))
 
     hashed = generate_password_hash(new_pass)
     user_sheet, _ = get_sheets()
-    user_sheet.update_cell(row_id, 5, hashed) # Column E (Password)
-    user_sheet.update_cell(row_id, 8, "0")    # Clear temp status (Column H)
-    
+    user_sheet.update_cell(row_id, 5, hashed)
+    user_sheet.update_cell(row_id, 8, "0") 
     session.pop('reset_user_row', None)
-    flash("Password updated successfully! Please login.", "success")
+    flash("Success! Please login.", "success")
     return redirect(url_for('login'))
 
 # --- ADMIN ROUTES ---
@@ -181,69 +176,36 @@ def admin_dashboard():
     if session.get('role') != 'admin': return redirect(url_for('login'))
     user_sheet, _ = get_sheets()
     all_users = user_sheet.get_all_records()
-    
     employees = []
     for i, u in enumerate(all_users, start=2):
         if u.get('Role') == 'employee':
             u['row_id'] = i 
             u['is_registered'] = True if u.get('Face Encoding') else False
             employees.append(u)
-    
     return render_template('admin_dashboard.html', employees=employees)
 
 @app.route('/add_employee', methods=['POST'])
 def add_employee():
     if session.get('role') != 'admin': return redirect(url_for('login'))
     f, l, e, d = request.form.get('first_name'), request.form.get('last_name'), request.form.get('email'), request.form.get('department')
-    
-    # Generate Unique Temp Password
     chars = string.ascii_letters + string.digits + "!@#$"
     temp_pass = ''.join(random.choice(chars) for _ in range(8))
     hashed = generate_password_hash(temp_pass)
-    
     user_sheet, _ = get_sheets()
-    user_sheet.append_row([f, l, e, d, hashed, 'employee', '', '1']) # Column H set to '1' (is_temp)
-    
-    # Get Row ID of the person we just added for their private link
+    user_sheet.append_row([f, l, e, d, hashed, 'employee', '', '1']) 
     cell = user_sheet.find(e)
-    row_id = cell.row
-    
-    # Absolute URL for Registration (Render Link)
-    reg_link = f"https://biometric-attendance-system-tsca.onrender.com/register_face/{row_id}"
-
-    subject = "Welcome to FaceAuth - Face Registration Required"
-    html = f"""
-    <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #ddd;">
-        <h2 style="color: #1a73e8;">Hello {f},</h2>
-        <p>Your workspace account is ready. Please follow these steps:</p>
-        <p><strong>1. Temporary Password:</strong> <code>{temp_pass}</code></p>
-        <p><strong>2. Face Registration:</strong> You must register your face profile before logging in.</p>
-        <a href="{reg_link}" style="background: #1a73e8; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">Register Face Now</a>
-        <p style="color: #666; font-size: 12px; margin-top: 15px;">Note: You will be asked to change your password on first login.</p>
-    </div>
-    """
-    send_email_via_brevo(e, subject, html)
-    flash(f"Success! {f} added and registration email sent.", "success")
+    reg_link = f"https://biometric-attendance-system-tsca.onrender.com/register_face/{cell.row}"
+    html = f"<h3>Welcome {f}</h3><p>Temp Pass: {temp_pass}</p><a href='{reg_link}'>Register Face Now</a>"
+    send_email_via_brevo(e, "Face Registration Required", html)
+    flash("Employee added and email sent!", "success")
     return redirect(url_for('admin_dashboard'))
 
-@app.route('/edit_employee/<int:row_id>', methods=['POST'])
-def edit_employee(row_id):
-    if session.get('role') != 'admin': return redirect(url_for('login'))
-    f, l, d = request.form.get('first_name'), request.form.get('last_name'), request.form.get('department')
-    user_sheet, _ = get_sheets()
-    user_sheet.update_cell(row_id, 1, f)
-    user_sheet.update_cell(row_id, 2, l)
-    user_sheet.update_cell(row_id, 4, d)
-    flash("Employee details updated.", "success")
-    return redirect(url_for('admin_dashboard'))
-
-@app.route('/delete_employee/<int:row_id>')
-def delete_employee(row_id):
-    if session.get('role') != 'admin': return redirect(url_for('login'))
-    user_sheet, _ = get_sheets()
-    user_sheet.delete_rows(row_id)
-    flash("Employee deleted.", "success")
-    return redirect(url_for('admin_dashboard'))
+# --- EMPLOYEE DASHBOARD (NEW) ---
+@app.route('/employee/dashboard')
+def employee_dashboard():
+    if 'user_row' not in session or not session.get('verified'):
+        return redirect(url_for('login'))
+    return render_template('employee_dashboard.html', name=session.get('first_name'))
 
 # --- FACE RECOGNITION ROUTES ---
 
@@ -264,7 +226,7 @@ def process_registration():
     if len(encs) > 0:
         encoding_str = json.dumps(encs[0].tolist())
         user_sheet, _ = get_sheets()
-        user_sheet.update_cell(row_id, 7, encoding_str) # Column G
+        user_sheet.update_cell(row_id, 7, encoding_str)
         return jsonify({"success": True})
     return jsonify({"success": False})
 
@@ -279,8 +241,6 @@ def process_verification():
     row_id, mode = session.get('user_row'), data.get('mode')
     user_sheet, attn_sheet = get_sheets()
     user_data = user_sheet.row_values(row_id)
-    
-    # Column G (Index 6) contains the encoding
     stored_enc = np.array(json.loads(user_data[6]))
     img_data = base64.b64decode(data['image'].split(',')[1])
     nparr = np.frombuffer(img_data, np.uint8)
@@ -290,16 +250,14 @@ def process_verification():
     if len(live_enc) > 0 and face_recognition.compare_faces([stored_enc], live_enc[0], tolerance=0.5)[0]:
         now = datetime.now()
         today, current_time = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
-        
         if mode == 'logout':
             records = attn_sheet.get_all_records()
             for i, r in enumerate(records, start=2):
                 if r['First Name'] == user_data[0] and r['Date'] == today and not r['Logout Time']:
-                    attn_sheet.update_cell(i, 5, current_time) # Column E
+                    attn_sheet.update_cell(i, 5, current_time)
                     break
         else:
             attn_sheet.append_row([user_data[0], user_data[1], today, current_time, "", "Present"])
-        
         session['verified'] = True
         return jsonify({"success": True})
     return jsonify({"success": False})

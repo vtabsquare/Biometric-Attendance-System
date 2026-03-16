@@ -3,33 +3,62 @@
 <head>
     <meta charset="UTF-8">
     <title>Register Face - FaceAuth</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='3') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        .camera-container { max-width: 500px; margin: 50px auto; text-align: center; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        video, canvas { width: 100%; border-radius: 8px; background: #eee; }
+        .btn-capture { background: #1a73e8; color: white; padding: 12px 24px; border: none; border-radius: 8px; margin-top: 20px; cursor: pointer; font-weight: bold; width: 100%; }
+        #status { margin-top: 15px; font-weight: bold; color: #555; }
+    </style>
 </head>
-<body class="auth-body">
-    <div class="auth-card">
+<body>
+    <div class="camera-container">
         <h2>Face Registration</h2>
-        <p style="color:var(--text-muted); margin-bottom:20px;">Scan your face to activate your profile.</p>
-        <div class="scanner-container">
-            <div class="scan-line"></div>
-            <video id="video" autoplay muted playsinline></video>
-            <canvas id="canvas" style="display:none;"></canvas>
-        </div>
-        <button id="rbtn" class="btn-primary">Capture & Register</button>
+        <p>Position your face in the center and click capture.</p>
+        <video id="video" autoplay muted playsinline></video>
+        <button id="capture" class="btn-capture">Capture & Register</button>
+        <canvas id="canvas" style="display:none;"></canvas>
+        <p id="status">Waiting for camera...</p>
     </div>
+
     <script>
         const video = document.getElementById('video');
-        navigator.mediaDevices.getUserMedia({ video: true }).then(s => video.srcObject = s);
-        document.getElementById('rbtn').onclick = function() {
-            const canvas = document.getElementById('canvas');
-            canvas.width = video.videoWidth; canvas.height = video.videoHeight;
-            canvas.getContext('2d').drawImage(video, 0, 0);
+        const canvas = document.getElementById('canvas');
+        const captureBtn = document.getElementById('capture');
+        const status = document.getElementById('status');
+
+        // Start Camera
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => { video.srcObject = stream; status.innerText = "Camera Ready"; })
+            .catch(err => { status.innerText = "Error: Camera access denied"; });
+
+        captureBtn.onclick = () => {
+            status.innerText = "Processing...";
+            const context = canvas.getContext('2d');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            context.drawImage(video, 0, 0);
+            
+            const imageData = canvas.toDataURL('image/jpeg');
+
             fetch('/process_registration', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ image: canvas.toDataURL('image/jpeg') })
-            }).then(r => r.json()).then(d => {
-                if(d.success) window.location.href = "/success";
-                else alert(d.message);
+                body: JSON.stringify({ image: imageData })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    status.style.color = "green";
+                    status.innerText = "Registration Successful! Redirecting...";
+                    setTimeout(() => {
+                        // FORCE REDIRECT TO RENDER LOGIN
+                        window.location.href = "https://biometric-attendance-system-tsca.onrender.com/login";
+                    }, 2000);
+                } else {
+                    status.style.color = "red";
+                    status.innerText = "Failed to detect face. Try again.";
+                }
             });
         };
     </script>

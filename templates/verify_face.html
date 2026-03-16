@@ -2,132 +2,68 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Biometric Verification - FaceAuth</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='105') }}">
+    <title>Verify Face - FaceAuth</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <style>
-        .verify-container { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; text-align: center; }
-        .scanner-box { width: 340px; height: 340px; border-radius: 50%; border: 8px solid var(--border); overflow: hidden; position: relative; background: #000; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
-        #video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
-        .scan-anim { position: absolute; top: 0; left: 0; width: 100%; height: 5px; background: var(--primary); box-shadow: 0 0 15px var(--primary); animation: scanLine 2.5s infinite linear; z-index: 10; }
-        @keyframes scanLine { 0% { top: 0; } 100% { top: 100%; } }
-        .success-overlay { position: absolute; inset: 0; background: rgba(34, 197, 94, 0.9); display: none; align-items: center; justify-content: center; z-index: 20; color: white; flex-direction: column; }
-        .checkmark { font-size: 80px; animation: popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
-        @keyframes popIn { 0% { transform: scale(0); } 100% { transform: scale(1); } }
+        .camera-container { max-width: 500px; margin: 50px auto; text-align: center; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        video, canvas { width: 100%; border-radius: 8px; }
+        .btn-verify { background: #34a853; color: white; padding: 12px 24px; border: none; border-radius: 8px; margin-top: 20px; cursor: pointer; font-weight: bold; width: 100%; }
+        #status { margin-top: 15px; font-weight: bold; }
     </style>
 </head>
-<body class="auth-body">
-    <audio id="success-sound" src="{{ url_for('static', filename='sounds/success.mp3') }}" preload="auto"></audio>
-
-    <div class="verify-container">
-        <h2 id="verify-title">Biometric Identity Check</h2>
-        <p id="verify-subtitle" style="color:var(--text-muted); margin-bottom: 30px;">
-            Analyzing unique facial landmarks for {{ name }}...
-        </p>
-
-        <div class="scanner-box">
-            <div class="scan-anim" id="scanner-line"></div>
-            <video id="video" autoplay muted></video>
-            <canvas id="canvas" style="display:none;"></canvas>
-            
-            <div class="success-overlay" id="success-ui">
-                <div class="checkmark">✓</div>
-                <h3 id="success-msg">Access Granted</h3>
-            </div>
-        </div>
-
-        <div id="status-msg" style="margin-top: 25px; font-weight: 600; color: var(--primary);">
-            Initializing Biometric Hardware...
-        </div>
+<body>
+    <div class="camera-container">
+        <h2>Verify Identity</h2>
+        <p>Hello, <strong>{{ name }}</strong>. Please verify your face to proceed.</p>
+        <video id="video" autoplay muted playsinline></video>
+        <button id="verify" class="btn-verify">Verify Now</button>
+        <canvas id="canvas" style="display:none;"></canvas>
+        <p id="status">Initializing...</p>
     </div>
 
     <script>
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
-        const successUI = document.getElementById('success-ui');
-        const statusMsg = document.getElementById('status-msg');
-        const scannerLine = document.getElementById('scanner-line');
-        const successSound = document.getElementById('success-sound');
-
-        // Check for 'login' or 'logout' mode from URL
+        const verifyBtn = document.getElementById('verify');
+        const status = document.getElementById('status');
+        
+        // Get mode (login/logout) from URL parameters
         const urlParams = new URLSearchParams(window.location.search);
         const mode = urlParams.get('mode') || 'login';
 
-        if(mode === 'logout') {
-            document.getElementById('verify-title').innerText = "Secure Logout Auth";
-            document.getElementById('success-msg').innerText = "Session Closed";
-        }
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => { video.srcObject = stream; status.innerText = "Scan Ready"; })
+            .catch(err => { status.innerText = "Error accessing camera."; });
 
-        // 1. Initialize Camera
-        navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } })
-            .then(stream => {
-                video.srcObject = stream;
-                statusMsg.innerText = "Camera Ready. Scanning coordinates...";
-                setTimeout(captureFace, 2500); // Initial delay for stability
-            })
-            .catch(err => {
-                statusMsg.style.color = "#ef4444";
-                statusMsg.innerText = "Camera access required for authentication.";
-            });
-
-        // 2. Capture and Fetch GPS
-        function captureFace() {
-            statusMsg.innerText = "Analyzing Facial Features...";
+        verifyBtn.onclick = () => {
+            status.innerText = "Verifying...";
+            const context = canvas.getContext('2d');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            context.drawImage(video, 0, 0);
             
-            navigator.geolocation.getCurrentPosition(position => {
-                const lat = position.coords.latitude;
-                const lon = position.coords.longitude;
+            const imageData = canvas.toDataURL('image/jpeg');
 
-                // Create snapshot
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                canvas.getContext('2d').drawImage(video, 0, 0);
-                const imageData = canvas.toDataURL('image/jpeg');
-
-                sendToServer(imageData, lat, lon);
-            }, () => {
-                statusMsg.style.color = "#ef4444";
-                statusMsg.innerText = "GPS access required for location verification.";
-                setTimeout(captureFace, 3000);
-            }, { enableHighAccuracy: true });
-        }
-
-        // 3. Backend Verification
-        function sendToServer(image, lat, lon) {
             fetch('/process_verification', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ image, mode, lat, lon })
+                body: JSON.stringify({ image: imageData, mode: mode })
             })
             .then(res => res.json())
             .then(data => {
                 if (data.success) {
-                    executeSuccessUI();
+                    status.style.color = "green";
+                    status.innerText = "Identity Verified!";
+                    setTimeout(() => {
+                        // FORCE REDIRECT TO EMPLOYEE DASHBOARD ON RENDER
+                        window.location.href = "https://biometric-attendance-system-tsca.onrender.com/employee/dashboard";
+                    }, 1500);
                 } else {
-                    statusMsg.style.color = "#ef4444";
-                    statusMsg.innerText = data.message || "Match failed. Repositioning...";
-                    setTimeout(captureFace, 2000);
+                    status.style.color = "red";
+                    status.innerText = "Face not recognized. Try again.";
                 }
             });
-        }
-
-        // 4. Success Handlers (Sound + UI + Redirect)
-        function executeSuccessUI() {
-            // Play Audio Beep
-            successSound.play().catch(e => console.log("Audio playback blocked by browser"));
-
-            // Visual Feedback
-            scannerLine.style.display = 'none';
-            successUI.style.display = 'flex';
-            statusMsg.style.display = 'none';
-
-            setTimeout(() => {
-                if (mode === 'logout') {
-                    window.location.href = "/logout"; // Terminate session
-                } else {
-                    window.location.href = "/employee/dashboard"; // Open session
-                }
-            }, 2000);
-        }
+        };
     </script>
 </body>
 </html>
