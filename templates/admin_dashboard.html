@@ -2,105 +2,97 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Admin Dashboard - FaceAuth</title>
+    <title>Admin - FaceAuth Dashboard</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <style>
-        /* Restoring your previous dashboard spacing and colors */
-        .dashboard-container { padding: 20px; font-family: sans-serif; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
-        th { background-color: #f4f4f4; }
-        
-        /* Your original button styles */
-        .btn { padding: 8px 12px; text-decoration: none; border-radius: 4px; cursor: pointer; color: white; border: none; }
-        .btn-edit { background-color: #2196F3; margin-right: 5px; }
-        .btn-delete { background-color: #f44336; }
-        .btn-add { background-color: #4CAF50; margin-bottom: 20px; display: inline-block; }
-        
-        /* Original Modal Styling */
-        .modal { display: none; position: fixed; z-index: 1; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); }
-        .modal-content { background: white; margin: 10% auto; padding: 20px; width: 400px; border-radius: 8px; }
+        :root { --primary: #1a73e8; --bg: #f8f9fa; --sidebar: #ffffff; }
+        body { display: flex; background: var(--bg); margin: 0; font-family: 'Inter', sans-serif; }
+        .sidebar { width: 240px; background: var(--sidebar); height: 100vh; border-right: 1px solid #eee; padding: 20px; position: fixed; }
+        .main-content { margin-left: 280px; padding: 40px; width: 100%; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
+        .card { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; color: #888; font-size: 12px; text-transform: uppercase; padding: 15px; border-bottom: 2px solid #f0f0f0; }
+        td { padding: 20px 15px; border-bottom: 1px solid #f9f9f9; font-size: 14px; }
+        .btn-add { background: var(--primary); color: white; padding: 12px 24px; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; }
+        .status-pill { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; background: #e8f0fe; color: var(--primary); }
+        .face-status { color: #34a853; font-weight: 600; }
+        .face-missing { color: #ea4335; }
+        .modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000; }
+        .modal-content { background:white; width:400px; margin:100px auto; padding:30px; border-radius:15px; }
+        input { width:100%; padding:12px; margin:10px 0; border:1px solid #ddd; border-radius:8px; box-sizing:border-box; }
     </style>
 </head>
 <body>
-    <div class="dashboard-container">
-        <h1>Admin Dashboard</h1>
-        <p>Welcome, {{ session['first_name'] }}!</p>
+    <div class="sidebar">
+        <h2 style="color:var(--primary)">F FaceAuth</h2>
+        <p style="color:#666; font-size:14px; margin-top:40px;">Employees</p>
+        <a href="/logout" style="position:absolute; bottom:40px; color:#ea4335; text-decoration:none; font-weight:600;">Logout</a>
+    </div>
 
-        <button class="btn btn-add" onclick="document.getElementById('addModal').style.display='block'">+ Add Employee</button>
-        <a href="/logout" class="btn" style="background: #333;">Logout</a>
+    <div class="main-content">
+        <div class="header">
+            <div>
+                <h1>Employee Management</h1>
+                <p style="color:#666">Monitor daily attendance and biometric profiles.</p>
+            </div>
+            <button class="btn-add" onclick="showModal()">+ Add Employee</button>
+        </div>
 
-        <table>
-            <thead>
-                <tr>
-                    <th>Name</th>
-                    <th>Email</th>
-                    <th>Department</th>
-                    <th>Face Status</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for emp in employees %}
-                <tr>
-                    <td>{{ emp['First Name'] }} {{ emp['Last Name'] }}</td>
-                    <td>{{ emp['Email'] }}</td>
-                    <td>{{ emp['Department'] }}</td>
-                    <td>
-                        {% if emp['is_registered'] %}
-                            <span style="color: green;">✅ Registered</span>
-                        {% else %}
-                            <span style="color: red;">❌ Not Registered</span>
-                            <br><a href="https://biometric-attendance-system-tsca.onrender.com/register_face/{{ emp.row_id }}">Register Now</a>
-                        {% endif %}
-                    </td>
-                    <td>
-                        <button class="btn btn-edit" onclick="openEditModal('{{ emp.row_id }}', '{{ emp['First Name'] }}', '{{ emp['Last Name'] }}', '{{ emp['Department'] }}')">Edit</button>
-                        
-                        <a href="https://biometric-attendance-system-tsca.onrender.com/delete_employee/{{ emp.row_id }}" class="btn btn-delete" onclick="return confirm('Are you sure you want to delete this employee?')">Delete</a>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+        <div class="card">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Employee</th>
+                        <th>Dept</th>
+                        <th>Status</th>
+                        <th>Face Action</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for emp in employees %}
+                    <tr>
+                        <td>
+                            <strong>{{ emp['First Name'] }} {{ emp['Last Name'] }}</strong><br>
+                            <span style="color:#888; font-size:12px;">{{ emp['Email'] }}</span>
+                        </td>
+                        <td>{{ emp['Department'] }}</td>
+                        <td><span class="status-pill">● NOT ACTIVE</span></td>
+                        <td>
+                            {% if emp['is_registered'] %}
+                                <span class="face-status">✅ Registered</span>
+                            {% else %}
+                                <span class="face-missing">❌ Missing</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a href="/delete_employee/{{ emp.row_id }}" style="color:#ea4335; font-size:12px; text-decoration:none;" onclick="return confirm('Delete?')">Delete</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </div>
 
     <div id="addModal" class="modal">
         <div class="modal-content">
-            <h3>Add New Employee</h3>
-            <form action="https://biometric-attendance-system-tsca.onrender.com/add_employee" method="POST">
-                <input type="text" name="first_name" placeholder="First Name" required><br><br>
-                <input type="text" name="last_name" placeholder="Last Name" required><br><br>
-                <input type="email" name="email" placeholder="Email" required><br><br>
-                <input type="text" name="department" placeholder="Department" required><br><br>
-                <button type="submit" class="btn btn-add">Save Employee</button>
-                <button type="button" onclick="document.getElementById('addModal').style.display='none'">Cancel</button>
-            </form>
-        </div>
-    </div>
-
-    <div id="editModal" class="modal">
-        <div class="modal-content">
-            <h3>Edit Employee</h3>
-            <form id="editForm" method="POST">
-                <input type="text" name="first_name" id="edit_f" required><br><br>
-                <input type="text" name="last_name" id="edit_l" required><br><br>
-                <input type="text" name="department" id="edit_d" required><br><br>
-                <button type="submit" class="btn btn-edit">Update Changes</button>
-                <button type="button" onclick="document.getElementById('editModal').style.display='none'">Cancel</button>
+            <h3>Add Employee</h3>
+            <form action="/add_employee" method="POST">
+                <input type="text" name="first_name" placeholder="First Name" required>
+                <input type="text" name="last_name" placeholder="Last Name" required>
+                <input type="email" name="email" placeholder="Email" required>
+                <input type="text" name="department" placeholder="IT/HR/Sales" required>
+                <button type="submit" class="btn-add" style="width:100%; margin-top:20px;">Save & Send Email</button>
+                <button type="button" onclick="hideModal()" style="width:100%; background:none; border:none; color:#888; margin-top:10px; cursor:pointer;">Cancel</button>
             </form>
         </div>
     </div>
 
     <script>
-        function openEditModal(rowId, f, l, d) {
-            document.getElementById('edit_f').value = f;
-            document.getElementById('edit_l').value = l;
-            document.getElementById('edit_d').value = d;
-            // Ensuring the form hits your RENDER backend
-            document.getElementById('editForm').action = "https://biometric-attendance-system-tsca.onrender.com/edit_employee/" + rowId;
-            document.getElementById('editModal').style.display = 'block';
-        }
+        function showModal() { document.getElementById('addModal').style.display='block'; }
+        function hideModal() { document.getElementById('addModal').style.display='none'; }
     </script>
 </body>
 </html>
