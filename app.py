@@ -203,9 +203,7 @@ def employee_dashboard():
     
     # FILTER ALL LOGS FOR THE LOGGED-IN USER
     my_logs = [row for row in all_attendance if row['First Name'] == session.get('first_name') and row['Date'] == today]
-    
-    # Sort logs so newest is at the top (optional, matches your screenshot)
-    my_logs.reverse() 
+    my_logs.reverse() # Show newest activity at the top
 
     return render_template('employee_dashboard.html', name=session.get('first_name'), records=my_logs)
 
@@ -219,7 +217,7 @@ def add_employee():
     user_sheet, _ = get_sheets()
     user_sheet.append_row([f, l, e, d, hashed, 'employee', '', '1']) 
     
-    # Re-fetch to get correct row
+    # Re-fetch to get correct row for unique registration link
     cell = user_sheet.find(e)
     reg_link = f"https://biometric-attendance-system-tsca.onrender.com/register_face/{cell.row}"
     
@@ -228,25 +226,18 @@ def add_employee():
     flash("Employee added and email sent!", "success")
     return redirect(url_for('admin_dashboard'))
 
-# --- THE MISSING EDIT ROUTE ---
 @app.route('/edit_employee/<int:row_id>', methods=['POST'])
 def edit_employee(row_id):
     if session.get('role') != 'admin': return redirect(url_for('login'))
-    
-    f = request.form.get('first_name')
-    l = request.form.get('last_name')
-    d = request.form.get('department')
-    
+    f, l, d = request.form.get('first_name'), request.form.get('last_name'), request.form.get('department')
     user_sheet, _ = get_sheets()
     try:
-        # Columns: A=1 (First), B=2 (Last), D=4 (Dept)
         user_sheet.update_cell(row_id, 1, f)
         user_sheet.update_cell(row_id, 2, l)
         user_sheet.update_cell(row_id, 4, d)
         flash("Employee updated successfully!", "success")
     except Exception as e:
-        flash(f"Error updating employee: {str(e)}", "error")
-        
+        flash(f"Error: {str(e)}", "error")
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/delete_employee/<int:row_id>')
@@ -255,13 +246,12 @@ def delete_employee(row_id):
     user_sheet, _ = get_sheets()
     try:
         user_sheet.delete_rows(row_id)
-        flash("Employee deleted successfully!", "success")
+        flash("Employee deleted!", "success")
     except:
         flash("Error deleting employee.", "error")
     return redirect(url_for('admin_dashboard'))
 
-
-# --- FACE RECOGNITION ROUTES ---
+# --- FACE RECOGNITION & LOCATION ROUTES ---
 
 @app.route('/register_face/<int:user_id>')
 def register_face(user_id): 
@@ -286,11 +276,7 @@ def process_registration():
 
 @app.route('/verify-face')
 def verify_face(): 
-    # Safety check: if they aren't in a session, send them to login
-    if 'user_row' not in session:
-        return redirect(url_for('login'))
-        
-    # Capture if this is a login or logout attempt
+    if 'user_row' not in session: return redirect(url_for('login'))
     mode = request.args.get('mode', 'login') 
     return render_template('verify_face.html', name=session.get('first_name'), mode=mode)
 
@@ -298,6 +284,9 @@ def verify_face():
 def process_verification():
     data = request.get_json()
     row_id, mode = session.get('user_row'), data.get('mode')
+    # CAPTURE LOCATION FROM FRONTEND
+    location_url = data.get('location', 'Location Not Shared')
+
     user_sheet, attn_sheet = get_sheets()
     user_data = user_sheet.row_values(row_id)
     stored_enc = np.array(json.loads(user_data[6]))
@@ -309,6 +298,7 @@ def process_verification():
     if len(live_enc) > 0 and face_recognition.compare_faces([stored_enc], live_enc[0], tolerance=0.5)[0]:
         now = datetime.now()
         today, current_time = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
+        
         if mode == 'logout':
             records = attn_sheet.get_all_records()
             for i, r in enumerate(records, start=2):
@@ -316,7 +306,9 @@ def process_verification():
                     attn_sheet.update_cell(i, 5, current_time)
                     break
         else:
-            attn_sheet.append_row([user_data[0], user_data[1], today, current_time, "", "Present"])
+            # APPEND NEW LOG WITH LOCATION (Column G)
+            attn_sheet.append_row([user_data[0], user_data[1], today, current_time, "", "Present", location_url])
+        
         session['verified'] = True
         return jsonify({"success": True})
     return jsonify({"success": False})

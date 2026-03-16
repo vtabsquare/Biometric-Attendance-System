@@ -3,41 +3,41 @@
 <head>
     <meta charset="UTF-8">
     <title>Admin Dashboard - FaceAuth</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='200') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='206') }}">
     <style>
         :root { --primary: #1a73e8; --bg: #f8fafc; }
         body { display: flex; background: var(--bg); margin: 0; font-family: 'Inter', sans-serif; }
-        .sidebar { width: 260px; background: white; height: 100vh; border-right: 1px solid #e2e8f0; padding: 30px; position: fixed; display: flex; flex-direction: column; }
-        .main-content { margin-left: 290px; padding: 40px; width: 100%; }
-        
-        /* Modern Card Styling from Screenshot */
+        .sidebar { width: 260px; background: white; height: 100vh; border-right: 1px solid #e2e8f0; padding: 30px; position: fixed; }
+        .main-content { margin-left: 290px; padding: 40px; width: calc(100% - 290px); }
         .dashboard-card { background: white; border-radius: 20px; padding: 30px; box-shadow: 0 4px 20px rgba(0,0,0,0.03); border: 1px solid #edf2f7; }
         
         table { width: 100%; border-collapse: collapse; }
         th { text-align: left; color: #64748b; font-size: 13px; font-weight: 600; padding: 15px; border-bottom: 1px solid #f1f5f9; }
         td { padding: 20px 15px; border-bottom: 1px solid #f8fafc; vertical-align: top; }
 
-        /* Activity Log Scroll Area */
-        .log-scroll-area { max-height: 120px; overflow-y: auto; padding-right: 10px; }
-        .log-entry { font-size: 13px; margin-bottom: 12px; color: #334155; }
-        .location-tag { font-size: 11px; color: #1a73e8; background: #eff6ff; padding: 2px 6px; border-radius: 4px; margin-top: 4px; display: inline-block; }
+        .log-scroll-area { max-height: 150px; overflow-y: auto; padding-right: 10px; }
+        .log-entry { font-size: 13px; margin-bottom: 12px; color: #334155; padding: 10px; background: #fcfcfc; border-radius: 8px; border: 1px solid #f0f0f0; }
+        
+        /* Clickable Location Tag */
+        .location-link { font-size: 11px; color: #1a73e8; background: #eff6ff; padding: 4px 8px; border-radius: 4px; margin-top: 6px; display: inline-block; text-decoration: none; font-weight: 600; }
+        .location-link:hover { background: #dbeafe; }
 
-        .btn-add { background: var(--primary); color: white; padding: 10px 25px; border-radius: 50px; border: none; font-weight: 600; cursor: pointer; }
         .status-badge { background: #dcfce7; color: #166534; padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; }
+        .btn-add { background: var(--primary); color: white; padding: 12px 24px; border-radius: 50px; border: none; font-weight: 600; cursor: pointer; }
     </style>
 </head>
 <body>
     <div class="sidebar">
         <h2 style="color:var(--primary)">FaceAuth</h2>
-        <a href="#" class="nav-link active">Employees</a>
-        <a href="/logout" style="margin-top:auto; color:#ef4444; text-decoration:none;">Logout</a>
+        <a href="#" class="nav-item active">Employees</a>
+        <a href="/logout" style="margin-top:auto; color:#ef4444; text-decoration:none; font-weight:600;">Logout</a>
     </div>
 
     <div class="main-content">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:30px;">
             <div>
                 <h1>Employee Management</h1>
-                <p style="color:#64748b">Real-time biometric tracking and location logs.</p>
+                <p style="color:#64748b">Real-time tracking and GPS location logs.</p>
             </div>
             <button class="btn-add" onclick="document.getElementById('addModal').style.display='block'">+ Add Employee</button>
         </div>
@@ -58,7 +58,7 @@
                         <td>
                             <strong>{{ emp['First Name'] }} {{ emp['Last Name'] }}</strong><br>
                             <span style="color:#94a3b8; font-size:12px;">{{ emp['Email'] }}</span><br>
-                            <span style="background:#eff6ff; color:#1a73e8; font-size:10px; padding:2px 6px; border-radius:4px;">{{ emp['Department'] }}</span>
+                            <span style="color:var(--primary); font-size:11px; font-weight:700;">{{ emp['Department'] }}</span>
                         </td>
                         <td>
                             <div class="log-scroll-area">
@@ -66,11 +66,15 @@
                                     {% for log in emp.logs %}
                                     <div class="log-entry">
                                         <strong>In:</strong> {{ log['Login Time'] }} | <strong>Out:</strong> {{ log['Logout Time'] if log['Logout Time'] else '--' }}<br>
-                                        <span class="location-tag">📍 {{ log['Location'] if log['Location'] else 'Erode' }}</span>
+                                        {% if log['Location'] and 'http' in log['Location'] %}
+                                            <a href="{{ log['Location'] }}" target="_blank" class="location-link">📍 View Exact Location</a>
+                                        {% else %}
+                                            <span class="location-link" style="background:#f1f5f9; color:#64748b;">📍 Location N/A</span>
+                                        {% endif %}
                                     </div>
                                     {% endfor %}
                                 {% else %}
-                                    <span style="color:#cbd5e1; font-style:italic;">No activity today</span>
+                                    <span style="color:#cbd5e1; font-style:italic;">No activity recorded today</span>
                                 {% endif %}
                             </div>
                         </td>
@@ -78,12 +82,12 @@
                             {% if emp.is_registered %}
                                 <span class="status-badge">Face Registered</span>
                             {% else %}
-                                <span class="status-badge" style="background:#fee2e2; color:#b91c1c;">Pending Registration</span>
+                                <span class="status-badge" style="background:#fee2e2; color:#b91c1c;">Missing Profile</span>
                             {% endif %}
                         </td>
                         <td>
-                            <button onclick="openEditModal('{{ emp.row_id }}')" style="background:none; border:none; color:#1a73e8; cursor:pointer;">✎</button>
-                            <a href="https://biometric-attendance-system-tsca.onrender.com/delete_employee/{{ emp.row_id }}" style="color:#ef4444; text-decoration:none; margin-left:10px;">🗑</a>
+                            <button onclick="openEditModal('{{ emp.row_id }}')" style="background:none; border:none; color:var(--primary); cursor:pointer; font-size:18px;">✎</button>
+                            <a href="https://biometric-attendance-system-tsca.onrender.com/delete_employee/{{ emp.row_id }}" style="color:#ef4444; text-decoration:none; margin-left:15px; font-size:18px;" onclick="return confirm('Delete?')">🗑</a>
                         </td>
                     </tr>
                     {% endfor %}
@@ -91,5 +95,6 @@
             </table>
         </div>
     </div>
-</body>
+
+    </body>
 </html>
