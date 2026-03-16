@@ -1,3 +1,4 @@
+import string
 import os
 import base64
 import cv2
@@ -188,11 +189,36 @@ def admin_dashboard():
 def add_employee():
     if session.get('role') != 'admin': return redirect(url_for('login'))
     f, l, e, d = request.form.get('first_name'), request.form.get('last_name'), request.form.get('email'), request.form.get('department')
-    temp_pass = "Welcome@123"
+    
+    # Generate a UNIQUE random password (e.g., Ab12345!)
+    chars = string.ascii_letters + string.digits + "!@#$%&"
+    temp_pass = ''.join(random.choice(chars) for _ in range(10))
     hashed = generate_password_hash(temp_pass)
+    
     user_sheet, _ = get_sheets()
-    user_sheet.append_row([f, l, e, d, hashed, 'employee', '', '1'])
-    send_email_via_brevo(e, "Welcome Staff", f"<h3>Welcome {f}!</h3><p>Temp Pass: {temp_pass}</p>")
+    # Append row and get the row number for the registration link
+    new_row = user_sheet.append_row([f, l, e, d, hashed, 'employee', '', '1'])
+    
+    # Calculate the row ID (Sheets returns a dict with 'updates', or we find the last row)
+    row_id = len(user_sheet.get_all_values()) 
+    reg_link = f"https://biometric-attendance-system-tsca.onrender.com/register_face/{row_id}"
+
+    # Updated Email Content
+    subject = "Welcome to FaceAuth - Registration Required"
+    html = f"""
+    <div style="font-family: sans-serif; border: 1px solid #eee; padding: 20px; border-radius: 10px;">
+        <h2 style="color: #2ecc71;">Welcome {f}!</h2>
+        <p>Your account has been created. Please use the details below to log in:</p>
+        <p><strong>Temporary Password:</strong> <span style="background: #f4f4f4; padding: 5px;">{temp_pass}</span></p>
+        <hr>
+        <p><strong>Step 2: Face Registration</strong></p>
+        <p>You must register your face before you can log in to the dashboard:</p>
+        <a href="{reg_link}" style="background: #3498db; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;">Register Your Face Now</a>
+        <p style="font-size: 12px; color: #777; margin-top: 20px;">Note: You will be asked to change your password upon your first login.</p>
+    </div>
+    """
+    send_email_via_brevo(e, subject, html)
+    flash(f"Employee {f} added and email sent!", "success")
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/edit_employee/<int:row_id>', methods=['POST'])
