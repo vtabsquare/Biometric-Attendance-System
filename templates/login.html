@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Login - FaceAuth Portal</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='9') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='10') }}">
 </head>
 <body class="auth-body">
     <div class="auth-card">
@@ -24,7 +24,7 @@
           {% endif %}
         {% endwith %}
 
-        <form action="{{ url_for('login') }}" method="POST">
+        <form action="https://biometric-attendance-system-tsca.onrender.com/login" method="POST">
             <div class="form-group">
                 <label>Work Email</label>
                 <input type="email" name="email" placeholder="name@company.com" required>
@@ -33,7 +33,7 @@
             <div class="form-group">
                 <div style="display:flex; justify-content:space-between;">
                     <label>Password</label>
-                    <a href="{{ url_for('forgot_password') }}" style="font-size:11px; font-weight:700; color:var(--primary); text-decoration:none;">FORGOT?</a>
+                    <a href="https://biometric-attendance-system-tsca.onrender.com/forgot-password" style="font-size:11px; font-weight:700; color:var(--primary); text-decoration:none;">FORGOT?</a>
                 </div>
                 <div class="input-container">
                     <input type="password" name="password" id="login_pw" placeholder="••••••••" required>
