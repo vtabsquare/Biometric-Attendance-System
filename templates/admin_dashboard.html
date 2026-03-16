@@ -2,42 +2,70 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Admin - FaceAuth Dashboard</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <title>Admin Dashboard - FaceAuth</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='3') }}">
     <style>
         :root { --primary: #1a73e8; --bg: #f8f9fa; --sidebar: #ffffff; }
-        body { display: flex; background: var(--bg); margin: 0; font-family: 'Inter', sans-serif; }
-        .sidebar { width: 240px; background: var(--sidebar); height: 100vh; border-right: 1px solid #eee; padding: 20px; position: fixed; }
-        .main-content { margin-left: 280px; padding: 40px; width: 100%; }
+        body { display: flex; background: var(--bg); margin: 0; font-family: 'Inter', sans-serif; height: 100vh; }
+        
+        /* Sidebar Styling (Blue/White Theme) */
+        .sidebar { width: 240px; background: var(--sidebar); height: 100vh; border-right: 1px solid #eee; padding: 20px; position: fixed; display: flex; flex-direction: column; }
+        .logo { display: flex; align-items: center; gap: 10px; margin-bottom: 40px; }
+        .logo-icon { background: var(--primary); color: white; padding: 8px 12px; border-radius: 8px; font-weight: bold; }
+        .logo-text { font-size: 20px; font-weight: 700; color: #333; }
+        .nav-item { color: var(--primary); font-weight: 600; text-decoration: none; padding: 12px; border-radius: 8px; background: #e8f0fe; margin-bottom: 10px; }
+        .logout-link { margin-top: auto; color: #ea4335; text-decoration: none; font-weight: 600; padding: 12px; }
+
+        /* Main Content */
+        .main-content { margin-left: 280px; padding: 40px; width: calc(100% - 280px); }
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
         .card { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        
+        /* Table Styling */
         table { width: 100%; border-collapse: collapse; }
         th { text-align: left; color: #888; font-size: 12px; text-transform: uppercase; padding: 15px; border-bottom: 2px solid #f0f0f0; }
         td { padding: 20px 15px; border-bottom: 1px solid #f9f9f9; font-size: 14px; }
-        .btn-add { background: var(--primary); color: white; padding: 12px 24px; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; }
-        .status-pill { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; background: #e8f0fe; color: var(--primary); }
-        .face-status { color: #34a853; font-weight: 600; }
-        .face-missing { color: #ea4335; }
-        .modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:1000; }
-        .modal-content { background:white; width:400px; margin:100px auto; padding:30px; border-radius:15px; }
-        input { width:100%; padding:12px; margin:10px 0; border:1px solid #ddd; border-radius:8px; box-sizing:border-box; }
+        
+        /* Buttons */
+        .btn { padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; border: none; text-decoration: none; display: inline-block; }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-edit { background: #34a853; color: white; margin-right: 5px; }
+        .btn-delete { background: #ea4335; color: white; }
+        
+        /* Modal Styling */
+        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); }
+        .modal-content { background: white; margin: 10% auto; padding: 30px; width: 400px; border-radius: 12px; }
+        input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; }
     </style>
 </head>
 <body>
     <div class="sidebar">
-        <h2 style="color:var(--primary)">F FaceAuth</h2>
-        <p style="color:#666; font-size:14px; margin-top:40px;">Employees</p>
-        <a href="/logout" style="position:absolute; bottom:40px; color:#ea4335; text-decoration:none; font-weight:600;">Logout</a>
+        <div class="logo">
+            <span class="logo-icon">F</span>
+            <span class="logo-text">FaceAuth</span>
+        </div>
+        <a href="#" class="nav-item">Employees</a>
+        <a href="/logout" class="logout-link">Logout</a>
     </div>
 
     <div class="main-content">
         <div class="header">
             <div>
                 <h1>Employee Management</h1>
-                <p style="color:#666">Monitor daily attendance and biometric profiles.</p>
+                <p style="color:#666">Logged in as: <strong>{{ session['first_name'] }}</strong></p>
             </div>
-            <button class="btn-add" onclick="showModal()">+ Add Employee</button>
+            <button class="btn btn-primary" onclick="document.getElementById('addModal').style.display='block'">+ Add New Employee</button>
         </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            {% for category, message in messages %}
+              <div style="padding: 15px; margin-bottom: 20px; border-radius: 8px; background: #d4edda; color: #155724;">
+                {{ message }}
+              </div>
+            {% endfor %}
+          {% endif %}
+        {% endwith %}
 
         <div class="card">
             <table>
@@ -45,8 +73,7 @@
                     <tr>
                         <th>Employee</th>
                         <th>Dept</th>
-                        <th>Status</th>
-                        <th>Face Action</th>
+                        <th>Face Registration</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -58,16 +85,17 @@
                             <span style="color:#888; font-size:12px;">{{ emp['Email'] }}</span>
                         </td>
                         <td>{{ emp['Department'] }}</td>
-                        <td><span class="status-pill">● NOT ACTIVE</span></td>
                         <td>
                             {% if emp['is_registered'] %}
-                                <span class="face-status">✅ Registered</span>
+                                <span style="color: #34a853; font-weight: bold;">✅ Registered</span>
                             {% else %}
-                                <span class="face-missing">❌ Missing</span>
+                                <span style="color: #ea4335; font-weight: bold;">❌ Missing</span><br>
+                                <a href="https://biometric-attendance-system-tsca.onrender.com/register_face/{{ emp.row_id }}" style="font-size: 11px;">Register Now</a>
                             {% endif %}
                         </td>
                         <td>
-                            <a href="/delete_employee/{{ emp.row_id }}" style="color:#ea4335; font-size:12px; text-decoration:none;" onclick="return confirm('Delete?')">Delete</a>
+                            <button class="btn btn-edit" onclick="openEditModal('{{ emp.row_id }}', '{{ emp['First Name'] }}', '{{ emp['Last Name'] }}', '{{ emp['Department'] }}')">Edit</button>
+                            <a href="https://biometric-attendance-system-tsca.onrender.com/delete_employee/{{ emp.row_id }}" class="btn btn-delete" onclick="return confirm('Delete permanently?')">Delete</a>
                         </td>
                     </tr>
                     {% endfor %}
@@ -78,21 +106,45 @@
 
     <div id="addModal" class="modal">
         <div class="modal-content">
-            <h3>Add Employee</h3>
-            <form action="/add_employee" method="POST">
+            <h3>Add New Staff</h3>
+            <form action="https://biometric-attendance-system-tsca.onrender.com/add_employee" method="POST">
                 <input type="text" name="first_name" placeholder="First Name" required>
                 <input type="text" name="last_name" placeholder="Last Name" required>
                 <input type="email" name="email" placeholder="Email" required>
-                <input type="text" name="department" placeholder="IT/HR/Sales" required>
-                <button type="submit" class="btn-add" style="width:100%; margin-top:20px;">Save & Send Email</button>
-                <button type="button" onclick="hideModal()" style="width:100%; background:none; border:none; color:#888; margin-top:10px; cursor:pointer;">Cancel</button>
+                <input type="text" name="department" placeholder="Department" required>
+                <button type="submit" class="btn btn-primary" style="width:100%; margin-top:10px;">Save & Send Email</button>
+                <button type="button" onclick="document.getElementById('addModal').style.display='none'" style="width:100%; background:none; border:none; color:#888; margin-top:10px; cursor:pointer;">Cancel</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="editModal" class="modal">
+        <div class="modal-content">
+            <h3>Update Employee</h3>
+            <form id="editForm" method="POST">
+                <input type="text" name="first_name" id="edit_f" required>
+                <input type="text" name="last_name" id="edit_l" required>
+                <input type="text" name="department" id="edit_d" required>
+                <button type="submit" class="btn btn-edit" style="width:100%; margin-top:10px;">Update Changes</button>
+                <button type="button" onclick="document.getElementById('editModal').style.display='none'" style="width:100%; background:none; border:none; color:#888; margin-top:10px; cursor:pointer;">Cancel</button>
             </form>
         </div>
     </div>
 
     <script>
-        function showModal() { document.getElementById('addModal').style.display='block'; }
-        function hideModal() { document.getElementById('addModal').style.display='none'; }
+        function openEditModal(rowId, f, l, d) {
+            document.getElementById('edit_f').value = f;
+            document.getElementById('edit_l').value = l;
+            document.getElementById('edit_d').value = d;
+            document.getElementById('editForm').action = "https://biometric-attendance-system-tsca.onrender.com/edit_employee/" + rowId;
+            document.getElementById('editModal').style.display = 'block';
+        }
+
+        window.onclick = function(event) {
+            if (event.target.className === 'modal') {
+                event.target.style.display = 'none';
+            }
+        }
     </script>
 </body>
 </html>

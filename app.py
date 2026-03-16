@@ -129,7 +129,7 @@ def send_otp():
         cell = user_sheet.find(email, in_column=3)
         otp = random.randint(100000, 999999)
         otp_store[email] = {"otp": otp, "expiry": time.time() + 300}
-        html = f"<h2>OTP: {otp}</h2><p>Your OTP is valid for 5 mins.</p>"
+        html = f"<h2>OTP: {otp}</h2><p>Valid for 5 mins.</p>"
         send_email_via_brevo(email, "Password Reset OTP", html)
         return jsonify({"success": True})
     except:
@@ -193,14 +193,49 @@ def add_employee():
     hashed = generate_password_hash(temp_pass)
     user_sheet, _ = get_sheets()
     user_sheet.append_row([f, l, e, d, hashed, 'employee', '', '1']) 
+    
+    # Re-fetch to get correct row
     cell = user_sheet.find(e)
     reg_link = f"https://biometric-attendance-system-tsca.onrender.com/register_face/{cell.row}"
+    
     html = f"<h3>Welcome {f}</h3><p>Temp Pass: {temp_pass}</p><a href='{reg_link}'>Register Face Now</a>"
     send_email_via_brevo(e, "Face Registration Required", html)
     flash("Employee added and email sent!", "success")
     return redirect(url_for('admin_dashboard'))
 
-# --- EMPLOYEE DASHBOARD (NEW) ---
+# --- THE MISSING EDIT ROUTE ---
+@app.route('/edit_employee/<int:row_id>', methods=['POST'])
+def edit_employee(row_id):
+    if session.get('role') != 'admin': return redirect(url_for('login'))
+    
+    f = request.form.get('first_name')
+    l = request.form.get('last_name')
+    d = request.form.get('department')
+    
+    user_sheet, _ = get_sheets()
+    try:
+        # Columns: A=1 (First), B=2 (Last), D=4 (Dept)
+        user_sheet.update_cell(row_id, 1, f)
+        user_sheet.update_cell(row_id, 2, l)
+        user_sheet.update_cell(row_id, 4, d)
+        flash("Employee updated successfully!", "success")
+    except Exception as e:
+        flash(f"Error updating employee: {str(e)}", "error")
+        
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/delete_employee/<int:row_id>')
+def delete_employee(row_id):
+    if session.get('role') != 'admin': return redirect(url_for('login'))
+    user_sheet, _ = get_sheets()
+    try:
+        user_sheet.delete_rows(row_id)
+        flash("Employee deleted successfully!", "success")
+    except:
+        flash("Error deleting employee.", "error")
+    return redirect(url_for('admin_dashboard'))
+
+# --- EMPLOYEE DASHBOARD ---
 @app.route('/employee/dashboard')
 def employee_dashboard():
     if 'user_row' not in session or not session.get('verified'):
