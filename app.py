@@ -267,8 +267,13 @@ def process_registration():
 
 @app.route('/verify-face')
 def verify_face(): 
-    if 'user_row' not in session: return redirect(url_for('login'))
-    return render_template('verify_face.html', name=session.get('first_name'), mode=request.args.get('mode', 'login'))
+    # Safety check: if they aren't in a session, send them to login
+    if 'user_row' not in session:
+        return redirect(url_for('login'))
+        
+    # Capture if this is a login or logout attempt
+    mode = request.args.get('mode', 'login') 
+    return render_template('verify_face.html', name=session.get('first_name'), mode=mode)
 
 @app.route('/process_verification', methods=['POST'])
 def process_verification():

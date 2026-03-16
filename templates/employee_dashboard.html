@@ -4,38 +4,33 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Employee Dashboard - FaceAuth</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='120') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='121') }}">
     <style>
-        .timer-badge {
-            background: #eff6ff;
-            color: #2563eb;
-            padding: 8px 16px;
-            border-radius: 50px;
-            font-weight: 700;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            border: 1px solid #dbeafe;
-        }
-        .timer-critical {
-            background: #fff1f2;
-            color: #e11d48;
-            border-color: #fecdd3;
-            animation: pulse 1s infinite;
-        }
-        @keyframes pulse {
-            0% { opacity: 1; }
-            50% { opacity: 0.7; }
-            100% { opacity: 1; }
-        }
-        .status-pill {
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 600;
-        }
+        :root { --primary: #1a73e8; --border: #e2e8f0; --text-muted: #64748b; }
+        body { margin: 0; font-family: 'Inter', sans-serif; background: #f8fafc; }
+        .dashboard-wrapper { display: flex; min-height: 100vh; }
+        
+        /* Sidebar Styling */
+        .sidebar { width: 260px; background: white; border-right: 1px solid var(--border); padding: 30px; display: flex; flex-direction: column; position: fixed; height: 100vh; }
+        .nav-link { display: block; padding: 12px 16px; text-decoration: none; color: #334155; border-radius: 8px; margin-bottom: 8px; font-weight: 500; }
+        .nav-link.active { background: #eff6ff; color: var(--primary); }
+        
+        /* Main Content */
+        .main-content { margin-left: 320px; padding: 40px; flex: 1; max-width: 1000px; }
+        
+        .timer-badge { background: #eff6ff; color: #2563eb; padding: 8px 16px; border-radius: 50px; font-weight: 700; display: inline-flex; align-items: center; gap: 8px; border: 1px solid #dbeafe; }
+        .timer-critical { background: #fff1f2; color: #e11d48; border-color: #fecdd3; animation: pulse 1s infinite; }
+        
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.7; } 100% { opacity: 1; } }
+        
+        .status-pill { padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
         .status-active { background: #dcfce7; color: #166534; }
         .status-completed { background: #f1f5f9; color: #475569; }
+
+        .auth-card { background: white; border-radius: 12px; border: 1px solid var(--border); box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; padding: 16px; background: #f8fafc; color: var(--text-muted); font-size: 12px; text-transform: uppercase; }
+        td { padding: 16px; border-top: 1px solid #f1f5f9; }
     </style>
 </head>
 <body class="dashboard-body">
@@ -43,10 +38,10 @@
         <div class="sidebar">
             <h2 style="color:var(--primary); margin-bottom:40px;">FaceAuth</h2>
             <nav style="flex: 1;">
-                <a href="/employee/dashboard" class="nav-link active">My Attendance</a>
+                <a href="#" class="nav-link active">My Attendance</a>
             </nav>
-            <a href="/logout-request" class="nav-link" style="color:#ef4444; border-top: 1px solid var(--border); padding-top: 20px;">
-                Secure Logout
+            <a href="https://biometric-attendance-system-tsca.onrender.com/verify-face?mode=logout" class="nav-link" style="color:#ef4444; border-top: 1px solid var(--border); padding-top: 20px;">
+                Secure Logout →
             </a>
         </div>
 
@@ -54,7 +49,7 @@
             <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:30px;">
                 <div>
                     <h1>Welcome, {{ name }}!</h1>
-                    <p style="color:var(--text-muted);">Your session is active. Re-verify every 2 hours for security.</p>
+                    <p style="color:var(--text-muted);">Your biometric session is active.</p>
                 </div>
                 
                 <div class="timer-badge" id="timer-container">
@@ -63,26 +58,24 @@
                 </div>
             </div>
 
-            <div class="auth-card" style="max-width:100%; text-align:left; padding:0; overflow: hidden;">
-                <table style="width:100%; border-collapse:collapse;">
-                    <thead style="background:#f8fafc; border-bottom:1px solid var(--border);">
+            <div class="auth-card">
+                <table>
+                    <thead>
                         <tr>
-                            <th style="padding:16px;">Login Time</th>
-                            <th style="padding:16px;">Logout Time</th>
-                            <th style="padding:16px;">Status</th>
+                            <th>Date</th>
+                            <th>Login Time</th>
+                            <th>Logout Time</th>
+                            <th>Status</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for record in records %}
-                        <tr style="border-bottom:1px solid #f1f5f9;">
-                            <td style="padding:16px; font-weight: 500;">
-                                {{ record.login_time.strftime('%I:%M %p') }}
-                            </td>
-                            <td style="padding:16px;">
-                                {{ record.logout_time.strftime('%I:%M %p') if record.logout_time else '--' }}
-                            </td>
-                            <td style="padding:16px;">
-                                {% if not record.logout_time %}
+                        <tr>
+                            <td>{{ record['Date'] }}</td>
+                            <td><strong>{{ record['Login Time'] }}</strong></td>
+                            <td>{{ record['Logout Time'] if record['Logout Time'] else '--' }}</td>
+                            <td>
+                                {% if not record['Logout Time'] %}
                                     <span class="status-pill status-active">Active</span>
                                 {% else %}
                                     <span class="status-pill status-completed">Completed</span>
@@ -90,6 +83,11 @@
                             </td>
                         </tr>
                         {% endfor %}
+                        {% if not records %}
+                        <tr>
+                            <td colspan="4" style="text-align:center; color:var(--text-muted); padding:40px;">No attendance records found for today.</td>
+                        </tr>
+                        {% endif %}
                     </tbody>
                 </table>
             </div>
@@ -105,26 +103,24 @@
                 minutes = parseInt(timer / 60, 10);
                 seconds = parseInt(timer % 60, 10);
 
-                // Format as MM:SS
                 minutes = minutes < 10 ? "0" + minutes : minutes;
                 seconds = seconds < 10 ? "0" + seconds : seconds;
 
                 display.textContent = minutes + ":" + seconds;
 
-                // Visual warning when 5 minutes (300 seconds) remain
                 if (timer <= 300) {
                     container.classList.add('timer-critical');
                 }
 
                 if (--timer < 0) {
                     clearInterval(interval);
-                    window.location.reload();
+                    // Force re-verification when timer hits zero
+                    window.location.href = "https://biometric-attendance-system-tsca.onrender.com/verify-face";
                 }
             }, 1000);
         }
 
         window.onload = function () {
-            // PRODUCTION MODE: 7200 Seconds = 2 Hours
             const twoHours = 7200;
             const display = document.querySelector('#timer-display');
             startCountdown(twoHours, display);

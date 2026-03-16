@@ -2,41 +2,45 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Verify Face - FaceAuth</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <title>Verify Identity - FaceAuth</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='4') }}">
     <style>
-        .camera-container { max-width: 500px; margin: 50px auto; text-align: center; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
-        video, canvas { width: 100%; border-radius: 8px; }
-        .btn-verify { background: #34a853; color: white; padding: 12px 24px; border: none; border-radius: 8px; margin-top: 20px; cursor: pointer; font-weight: bold; width: 100%; }
-        #status { margin-top: 15px; font-weight: bold; }
+        .verify-container { max-width: 500px; margin: 60px auto; text-align: center; background: white; padding: 40px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+        video { width: 100%; border-radius: 12px; transform: scaleX(-1); background: #000; }
+        .btn-verify { background: #1a73e8; color: white; padding: 15px; border: none; border-radius: 8px; width: 100%; font-weight: 700; cursor: pointer; margin-top: 20px; font-size: 16px; }
+        #status { margin-top: 20px; font-weight: 600; color: #5f6368; }
+        .loading-dots:after { content: ' .'; animation: dots 1.5s steps(5, end) infinite;}
+        @keyframes dots { 0%, 20% { color: rgba(0,0,0,0); text-shadow: .25em 0 0 rgba(0,0,0,0), .5em 0 0 rgba(0,0,0,0); } 40% { color: #5f6368; text-shadow: .25em 0 0 rgba(0,0,0,0), .5em 0 0 rgba(0,0,0,0); } 60% { text-shadow: .25em 0 0 #5f6368, .5em 0 0 rgba(0,0,0,0); } 80%, 100% { text-shadow: .25em 0 0 #5f6368, .5em 0 0 #5f6368; }}
     </style>
 </head>
 <body>
-    <div class="camera-container">
-        <h2>Verify Identity</h2>
-        <p>Hello, <strong>{{ name }}</strong>. Please verify your face to proceed.</p>
+    <div class="verify-container">
+        <h2 style="color: #1a73e8;">Biometric Verification</h2>
+        <p>Hello <strong>{{ name }}</strong>, please scan your face to <strong>{{ mode }}</strong>.</p>
+        
         <video id="video" autoplay muted playsinline></video>
-        <button id="verify" class="btn-verify">Verify Now</button>
         <canvas id="canvas" style="display:none;"></canvas>
-        <p id="status">Initializing...</p>
+        
+        <button id="verifyBtn" class="btn-verify">Verify Identity</button>
+        <p id="status">Initializing Camera<span class="loading-dots"></span></p>
     </div>
 
     <script>
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
-        const verifyBtn = document.getElementById('verify');
+        const btn = document.getElementById('verifyBtn');
         const status = document.getElementById('status');
-        
-        // Get mode (login/logout) from URL parameters
+
+        // Capture the mode (login or logout) from the URL
         const urlParams = new URLSearchParams(window.location.search);
         const mode = urlParams.get('mode') || 'login';
 
         navigator.mediaDevices.getUserMedia({ video: true })
-            .then(stream => { video.srcObject = stream; status.innerText = "Scan Ready"; })
-            .catch(err => { status.innerText = "Error accessing camera."; });
+            .then(stream => { video.srcObject = stream; status.innerText = "Camera Active"; })
+            .catch(err => { status.innerText = "Camera Error: Please allow access"; });
 
-        verifyBtn.onclick = () => {
-            status.innerText = "Verifying...";
+        btn.onclick = async () => {
+            status.innerText = "Analyzing Face...";
             const context = canvas.getContext('2d');
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
@@ -44,25 +48,32 @@
             
             const imageData = canvas.toDataURL('image/jpeg');
 
-            fetch('/process_verification', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ image: imageData, mode: mode })
-            })
-            .then(res => res.json())
-            .then(data => {
+            try {
+                const response = await fetch('https://biometric-attendance-system-tsca.onrender.com/process_verification', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image: imageData, mode: mode })
+                });
+                const data = await response.json();
+
                 if (data.success) {
-                    status.style.color = "green";
-                    status.innerText = "Identity Verified!";
+                    status.style.color = "#34a853";
+                    status.innerText = "Success! Identity Confirmed.";
                     setTimeout(() => {
-                        // FORCE REDIRECT TO EMPLOYEE DASHBOARD ON RENDER
-                        window.location.href = "https://biometric-attendance-system-tsca.onrender.com/employee/dashboard";
+                        // FIX: Redirect based on mode
+                        if (mode === 'logout') {
+                            window.location.href = "https://biometric-attendance-system-tsca.onrender.com/logout";
+                        } else {
+                            window.location.href = "https://biometric-attendance-system-tsca.onrender.com/employee/dashboard";
+                        }
                     }, 1500);
                 } else {
-                    status.style.color = "red";
+                    status.style.color = "#ea4335";
                     status.innerText = "Face not recognized. Try again.";
                 }
-            });
+            } catch (e) {
+                status.innerText = "Server error. Please check connection.";
+            }
         };
     </script>
 </body>
