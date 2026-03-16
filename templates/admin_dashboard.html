@@ -3,78 +3,53 @@
 <head>
     <meta charset="UTF-8">
     <title>Admin Dashboard - FaceAuth</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='3') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='200') }}">
     <style>
-        :root { --primary: #1a73e8; --bg: #f8f9fa; --sidebar: #ffffff; }
-        body { display: flex; background: var(--bg); margin: 0; font-family: 'Inter', sans-serif; height: 100vh; }
+        :root { --primary: #1a73e8; --bg: #f8fafc; }
+        body { display: flex; background: var(--bg); margin: 0; font-family: 'Inter', sans-serif; }
+        .sidebar { width: 260px; background: white; height: 100vh; border-right: 1px solid #e2e8f0; padding: 30px; position: fixed; display: flex; flex-direction: column; }
+        .main-content { margin-left: 290px; padding: 40px; width: 100%; }
         
-        /* Sidebar Styling (Blue/White Theme) */
-        .sidebar { width: 240px; background: var(--sidebar); height: 100vh; border-right: 1px solid #eee; padding: 20px; position: fixed; display: flex; flex-direction: column; }
-        .logo { display: flex; align-items: center; gap: 10px; margin-bottom: 40px; }
-        .logo-icon { background: var(--primary); color: white; padding: 8px 12px; border-radius: 8px; font-weight: bold; }
-        .logo-text { font-size: 20px; font-weight: 700; color: #333; }
-        .nav-item { color: var(--primary); font-weight: 600; text-decoration: none; padding: 12px; border-radius: 8px; background: #e8f0fe; margin-bottom: 10px; }
-        .logout-link { margin-top: auto; color: #ea4335; text-decoration: none; font-weight: 600; padding: 12px; }
-
-        /* Main Content */
-        .main-content { margin-left: 280px; padding: 40px; width: calc(100% - 280px); }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
-        .card { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+        /* Modern Card Styling from Screenshot */
+        .dashboard-card { background: white; border-radius: 20px; padding: 30px; box-shadow: 0 4px 20px rgba(0,0,0,0.03); border: 1px solid #edf2f7; }
         
-        /* Table Styling */
         table { width: 100%; border-collapse: collapse; }
-        th { text-align: left; color: #888; font-size: 12px; text-transform: uppercase; padding: 15px; border-bottom: 2px solid #f0f0f0; }
-        td { padding: 20px 15px; border-bottom: 1px solid #f9f9f9; font-size: 14px; }
-        
-        /* Buttons */
-        .btn { padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; border: none; text-decoration: none; display: inline-block; }
-        .btn-primary { background: var(--primary); color: white; }
-        .btn-edit { background: #34a853; color: white; margin-right: 5px; }
-        .btn-delete { background: #ea4335; color: white; }
-        
-        /* Modal Styling */
-        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); }
-        .modal-content { background: white; margin: 10% auto; padding: 30px; width: 400px; border-radius: 12px; }
-        input { width: 100%; padding: 12px; margin: 10px 0; border: 1px solid #ddd; border-radius: 8px; box-sizing: border-box; }
+        th { text-align: left; color: #64748b; font-size: 13px; font-weight: 600; padding: 15px; border-bottom: 1px solid #f1f5f9; }
+        td { padding: 20px 15px; border-bottom: 1px solid #f8fafc; vertical-align: top; }
+
+        /* Activity Log Scroll Area */
+        .log-scroll-area { max-height: 120px; overflow-y: auto; padding-right: 10px; }
+        .log-entry { font-size: 13px; margin-bottom: 12px; color: #334155; }
+        .location-tag { font-size: 11px; color: #1a73e8; background: #eff6ff; padding: 2px 6px; border-radius: 4px; margin-top: 4px; display: inline-block; }
+
+        .btn-add { background: var(--primary); color: white; padding: 10px 25px; border-radius: 50px; border: none; font-weight: 600; cursor: pointer; }
+        .status-badge { background: #dcfce7; color: #166534; padding: 5px 12px; border-radius: 6px; font-size: 12px; font-weight: 600; }
     </style>
 </head>
 <body>
     <div class="sidebar">
-        <div class="logo">
-            <span class="logo-icon">F</span>
-            <span class="logo-text">FaceAuth</span>
-        </div>
-        <a href="#" class="nav-item">Employees</a>
-        <a href="/logout" class="logout-link">Logout</a>
+        <h2 style="color:var(--primary)">FaceAuth</h2>
+        <a href="#" class="nav-link active">Employees</a>
+        <a href="/logout" style="margin-top:auto; color:#ef4444; text-decoration:none;">Logout</a>
     </div>
 
     <div class="main-content">
-        <div class="header">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:30px;">
             <div>
                 <h1>Employee Management</h1>
-                <p style="color:#666">Logged in as: <strong>{{ session['first_name'] }}</strong></p>
+                <p style="color:#64748b">Real-time biometric tracking and location logs.</p>
             </div>
-            <button class="btn btn-primary" onclick="document.getElementById('addModal').style.display='block'">+ Add New Employee</button>
+            <button class="btn-add" onclick="document.getElementById('addModal').style.display='block'">+ Add Employee</button>
         </div>
 
-        {% with messages = get_flashed_messages(with_categories=true) %}
-          {% if messages %}
-            {% for category, message in messages %}
-              <div style="padding: 15px; margin-bottom: 20px; border-radius: 8px; background: #d4edda; color: #155724;">
-                {{ message }}
-              </div>
-            {% endfor %}
-          {% endif %}
-        {% endwith %}
-
-        <div class="card">
+        <div class="dashboard-card">
             <table>
                 <thead>
                     <tr>
                         <th>Employee</th>
-                        <th>Dept</th>
-                        <th>Face Registration</th>
-                        <th>Actions</th>
+                        <th>Activity Logs (Today)</th>
+                        <th>Biometric Status</th>
+                        <th>Manage</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -82,20 +57,33 @@
                     <tr>
                         <td>
                             <strong>{{ emp['First Name'] }} {{ emp['Last Name'] }}</strong><br>
-                            <span style="color:#888; font-size:12px;">{{ emp['Email'] }}</span>
+                            <span style="color:#94a3b8; font-size:12px;">{{ emp['Email'] }}</span><br>
+                            <span style="background:#eff6ff; color:#1a73e8; font-size:10px; padding:2px 6px; border-radius:4px;">{{ emp['Department'] }}</span>
                         </td>
-                        <td>{{ emp['Department'] }}</td>
                         <td>
-                            {% if emp['is_registered'] %}
-                                <span style="color: #34a853; font-weight: bold;">✅ Registered</span>
+                            <div class="log-scroll-area">
+                                {% if emp.logs %}
+                                    {% for log in emp.logs %}
+                                    <div class="log-entry">
+                                        <strong>In:</strong> {{ log['Login Time'] }} | <strong>Out:</strong> {{ log['Logout Time'] if log['Logout Time'] else '--' }}<br>
+                                        <span class="location-tag">📍 {{ log['Location'] if log['Location'] else 'Erode' }}</span>
+                                    </div>
+                                    {% endfor %}
+                                {% else %}
+                                    <span style="color:#cbd5e1; font-style:italic;">No activity today</span>
+                                {% endif %}
+                            </div>
+                        </td>
+                        <td>
+                            {% if emp.is_registered %}
+                                <span class="status-badge">Face Registered</span>
                             {% else %}
-                                <span style="color: #ea4335; font-weight: bold;">❌ Missing</span><br>
-                                <a href="https://biometric-attendance-system-tsca.onrender.com/register_face/{{ emp.row_id }}" style="font-size: 11px;">Register Now</a>
+                                <span class="status-badge" style="background:#fee2e2; color:#b91c1c;">Pending Registration</span>
                             {% endif %}
                         </td>
                         <td>
-                            <button class="btn btn-edit" onclick="openEditModal('{{ emp.row_id }}', '{{ emp['First Name'] }}', '{{ emp['Last Name'] }}', '{{ emp['Department'] }}')">Edit</button>
-                            <a href="https://biometric-attendance-system-tsca.onrender.com/delete_employee/{{ emp.row_id }}" class="btn btn-delete" onclick="return confirm('Delete permanently?')">Delete</a>
+                            <button onclick="openEditModal('{{ emp.row_id }}')" style="background:none; border:none; color:#1a73e8; cursor:pointer;">✎</button>
+                            <a href="https://biometric-attendance-system-tsca.onrender.com/delete_employee/{{ emp.row_id }}" style="color:#ef4444; text-decoration:none; margin-left:10px;">🗑</a>
                         </td>
                     </tr>
                     {% endfor %}
@@ -103,48 +91,5 @@
             </table>
         </div>
     </div>
-
-    <div id="addModal" class="modal">
-        <div class="modal-content">
-            <h3>Add New Staff</h3>
-            <form action="https://biometric-attendance-system-tsca.onrender.com/add_employee" method="POST">
-                <input type="text" name="first_name" placeholder="First Name" required>
-                <input type="text" name="last_name" placeholder="Last Name" required>
-                <input type="email" name="email" placeholder="Email" required>
-                <input type="text" name="department" placeholder="Department" required>
-                <button type="submit" class="btn btn-primary" style="width:100%; margin-top:10px;">Save & Send Email</button>
-                <button type="button" onclick="document.getElementById('addModal').style.display='none'" style="width:100%; background:none; border:none; color:#888; margin-top:10px; cursor:pointer;">Cancel</button>
-            </form>
-        </div>
-    </div>
-
-    <div id="editModal" class="modal">
-        <div class="modal-content">
-            <h3>Update Employee</h3>
-            <form id="editForm" method="POST">
-                <input type="text" name="first_name" id="edit_f" required>
-                <input type="text" name="last_name" id="edit_l" required>
-                <input type="text" name="department" id="edit_d" required>
-                <button type="submit" class="btn btn-edit" style="width:100%; margin-top:10px;">Update Changes</button>
-                <button type="button" onclick="document.getElementById('editModal').style.display='none'" style="width:100%; background:none; border:none; color:#888; margin-top:10px; cursor:pointer;">Cancel</button>
-            </form>
-        </div>
-    </div>
-
-    <script>
-        function openEditModal(rowId, f, l, d) {
-            document.getElementById('edit_f').value = f;
-            document.getElementById('edit_l').value = l;
-            document.getElementById('edit_d').value = d;
-            document.getElementById('editForm').action = "https://biometric-attendance-system-tsca.onrender.com/edit_employee/" + rowId;
-            document.getElementById('editModal').style.display = 'block';
-        }
-
-        window.onclick = function(event) {
-            if (event.target.className === 'modal') {
-                event.target.style.display = 'none';
-            }
-        }
-    </script>
 </body>
 </html>

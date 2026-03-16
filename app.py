@@ -174,15 +174,40 @@ def update_password():
 @app.route('/admin/dashboard')
 def admin_dashboard():
     if session.get('role') != 'admin': return redirect(url_for('login'))
-    user_sheet, _ = get_sheets()
-    all_users = user_sheet.get_all_records()
-    employees = []
-    for i, u in enumerate(all_users, start=2):
+    user_sheet, attn_sheet = get_sheets()
+    
+    employees = user_sheet.get_all_records()
+    attendance = attn_sheet.get_all_records()
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    employee_list = []
+    for i, u in enumerate(employees, start=2):
         if u.get('Role') == 'employee':
-            u['row_id'] = i 
-            u['is_registered'] = True if u.get('Face Encoding') else False
-            employees.append(u)
-    return render_template('admin_dashboard.html', employees=employees)
+            u['row_id'] = i
+            u['is_registered'] = bool(u.get('Face Encoding'))
+            
+            # GET ALL LOGS FOR THIS EMPLOYEE TODAY
+            u['logs'] = [row for row in attendance if row['First Name'] == u['First Name'] and row['Date'] == today]
+            employee_list.append(u)
+            
+    return render_template('admin_dashboard.html', employees=employee_list)
+
+@app.route('/employee/dashboard')
+def employee_dashboard():
+    if 'user_row' not in session or not session.get('verified'):
+        return redirect(url_for('login'))
+    
+    _, attn_sheet = get_sheets()
+    today = datetime.now().strftime("%Y-%m-%d")
+    all_attendance = attn_sheet.get_all_records()
+    
+    # FILTER ALL LOGS FOR THE LOGGED-IN USER
+    my_logs = [row for row in all_attendance if row['First Name'] == session.get('first_name') and row['Date'] == today]
+    
+    # Sort logs so newest is at the top (optional, matches your screenshot)
+    my_logs.reverse() 
+
+    return render_template('employee_dashboard.html', name=session.get('first_name'), records=my_logs)
 
 @app.route('/add_employee', methods=['POST'])
 def add_employee():
@@ -235,12 +260,6 @@ def delete_employee(row_id):
         flash("Error deleting employee.", "error")
     return redirect(url_for('admin_dashboard'))
 
-# --- EMPLOYEE DASHBOARD ---
-@app.route('/employee/dashboard')
-def employee_dashboard():
-    if 'user_row' not in session or not session.get('verified'):
-        return redirect(url_for('login'))
-    return render_template('employee_dashboard.html', name=session.get('first_name'))
 
 # --- FACE RECOGNITION ROUTES ---
 
