@@ -31,7 +31,7 @@ except ImportError:
 load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET")
-CORS(app) # CRITICAL: Allows Vercel to talk to Render
+CORS(app) 
 
 # --- GOOGLE SHEETS CONNECTION ---
 def get_sheets():
@@ -97,8 +97,10 @@ def login():
                     'last_name': user_data[1], 
                     'role': user_data[5]
                 })
+                # Check if user needs to reset temp password (is_temp is Column H/Index 7)
                 if len(user_data) > 7 and user_data[7] == "1":
                     return redirect(url_for('reset_password'))
+                
                 if user_data[5] == 'admin': 
                     return redirect(url_for('admin_dashboard'))
                 
@@ -110,6 +112,63 @@ def login():
             flash("Invalid credentials.", "error")
     return render_template('login.html')
 
+# --- PASSWORD RESET ROUTES ---
+
+@app.route('/forgot-password')
+def forgot_password(): 
+    return render_template('forgot_password.html')
+
+@app.route('/send-otp', methods=['POST'])
+def send_otp():
+    email = request.get_json().get('email')
+    user_sheet, _ = get_sheets()
+    try:
+        cell = user_sheet.find(email, in_column=3)
+        otp = random.randint(100000, 999999)
+        otp_store[email] = {"otp": otp, "expiry": time.time() + 300}
+        html = f"<h2>OTP: {otp}</h2><p>Valid for 5 mins.</p>"
+        if send_email_via_brevo(email, "Password Reset OTP", html):
+            return jsonify({"success": True})
+    except:
+        return jsonify({"success": False, "message": "Email not found"})
+    return jsonify({"success": False})
+
+@app.route('/verify-otp', methods=['POST'])
+def verify_otp():
+    data = request.get_json()
+    email, otp = data.get('email'), data.get('otp')
+    if email in otp_store and str(otp_store[email]['otp']) == str(otp):
+        if time.time() < otp_store[email]['expiry']:
+            user_sheet, _ = get_sheets()
+            cell = user_sheet.find(email, in_column=3)
+            session['reset_user_row'] = cell.row
+            return jsonify({"success": True})
+    return jsonify({"success": False, "message": "Invalid OTP"})
+
+@app.route('/reset-password')
+def reset_password(): 
+    return render_template('reset_password.html')
+
+@app.route('/update_password', methods=['POST'])
+def update_password():
+    row_id = session.get('user_row') or session.get('reset_user_row')
+    if not row_id: return redirect(url_for('login'))
+    
+    new_pass = request.form.get('password')
+    if not is_password_strong(new_pass):
+        flash("Weak Password! 8+ chars, 1 Upper, 1 Special Required.", "error")
+        return redirect(url_for('reset_password'))
+
+    hashed = generate_password_hash(new_pass)
+    user_sheet, _ = get_sheets()
+    user_sheet.update_cell(row_id, 5, hashed) # Column E
+    user_sheet.update_cell(row_id, 8, "0")    # Clear temp status
+    session.pop('reset_user_row', None)
+    flash("Password updated successfully!", "success")
+    return redirect(url_for('login'))
+
+# --- ADMIN ROUTES ---
+
 @app.route('/admin/dashboard')
 def admin_dashboard():
     if session.get('role') != 'admin': return redirect(url_for('login'))
@@ -117,10 +176,9 @@ def admin_dashboard():
     all_users = user_sheet.get_all_records()
     
     employees = []
-    # Loop and manually track row index starting from 2 (Row 1 is headers)
     for i, u in enumerate(all_users, start=2):
         if u.get('Role') == 'employee':
-            u['row_id'] = i  # This is the ID passed to the HTML
+            u['row_id'] = i 
             u['is_registered'] = True if u.get('Face Encoding') else False
             employees.append(u)
     
@@ -134,8 +192,7 @@ def add_employee():
     hashed = generate_password_hash(temp_pass)
     user_sheet, _ = get_sheets()
     user_sheet.append_row([f, l, e, d, hashed, 'employee', '', '1'])
-    send_email_via_brevo(e, "Welcome Staff", f"<h3>Welcome {f}!</h3><p>Your temporary password is: {temp_pass}</p>")
-    flash(f"Employee {f} added successfully!", "success")
+    send_email_via_brevo(e, "Welcome Staff", f"<h3>Welcome {f}!</h3><p>Temp Pass: {temp_pass}</p>")
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/edit_employee/<int:row_id>', methods=['POST'])
@@ -143,10 +200,9 @@ def edit_employee(row_id):
     if session.get('role') != 'admin': return redirect(url_for('login'))
     f, l, d = request.form.get('first_name'), request.form.get('last_name'), request.form.get('department')
     user_sheet, _ = get_sheets()
-    user_sheet.update_cell(row_id, 1, f) # Col A
-    user_sheet.update_cell(row_id, 2, l) # Col B
-    user_sheet.update_cell(row_id, 4, d) # Col D
-    flash("Details updated successfully!", "success")
+    user_sheet.update_cell(row_id, 1, f)
+    user_sheet.update_cell(row_id, 2, l)
+    user_sheet.update_cell(row_id, 4, d)
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/delete_employee/<int:row_id>')
@@ -154,8 +210,9 @@ def delete_employee(row_id):
     if session.get('role') != 'admin': return redirect(url_for('login'))
     user_sheet, _ = get_sheets()
     user_sheet.delete_rows(row_id)
-    flash("Employee removed from system.", "success")
     return redirect(url_for('admin_dashboard'))
+
+# --- FACE RECOGNITION ROUTES ---
 
 @app.route('/register_face/<int:user_id>')
 def register_face(user_id): 
