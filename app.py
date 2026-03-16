@@ -2,8 +2,8 @@ import os
 import base64
 import cv2
 import face_recognition
-import psycopg2
-from psycopg2.extras import RealDictCursor
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 import numpy as np
 import random
 import time
@@ -31,11 +31,25 @@ load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET")
 
-# --- DATABASE CONNECTION (POSTGRESQL / SUPABASE) ---
-def get_db():
-    # Uses the single DATABASE_URL from your .env or Render Dashboard
-    conn = psycopg2.connect(os.getenv("DATABASE_URL"))
-    return conn
+# --- GOOGLE SHEETS CONNECTION ---
+def get_sheets():
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    
+    # Try to get credentials from Render Environment Variable first
+    creds_json = os.getenv("GOOGLE_CREDS_JSON")
+    
+    if creds_json:
+        # On Render: Use the JSON string from Environment Variables
+        info = json.loads(creds_json)
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(info, scope)
+    else:
+        # On Local: Use your local file
+        creds = ServiceAccountCredentials.from_json_keyfile_name("google_creds.json", scope)
+        
+    client = gspread.authorize(creds)
+    # Ensure this name matches your Google Sheet exactly
+    spreadsheet = client.open("Office_Attendance_System")
+    return spreadsheet.worksheet("users"), spreadsheet.worksheet("Attendance")
 
 BREVO_API_KEY = os.getenv("BREVO_API_KEY")
 SENDER_EMAIL = os.getenv("SENDER_EMAIL")
@@ -80,24 +94,37 @@ def index():
 def login():
     if request.method == 'POST':
         email, password = request.form.get('email'), request.form.get('password')
-        conn = get_db()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
-        cur.execute("SELECT * FROM users WHERE email = %s", (email,))
-        user = cur.fetchone()
-        cur.close(); conn.close()
+        user_sheet, _ = get_sheets()
         
-        if user and check_password_hash(user['password'], password):
-            session.update({'user_id': user['id'], 'first_name': user['first_name'], 'role': user['role']})
-            if user.get('is_temp_password') == 1:
-                return redirect(url_for('reset_password'))
-            if user['role'] == 'admin': 
-                return redirect(url_for('admin_dashboard'))
+        # Search for user by email in Column C (3)
+        try:
+            cell = user_sheet.find(email, in_column=3)
+            user_data = user_sheet.row_values(cell.row)
+            # Map values (A:1, B:2, C:3, D:4, E:5, F:6, G:7, H:8)
+            user = {
+                'row': cell.row,
+                'first_name': user_data[0],
+                'last_name': user_data[1],
+                'email': user_data[2],
+                'password': user_data[4],
+                'role': user_data[5],
+                'face_encoding': user_data[6] if len(user_data) > 6 else None,
+                'is_temp': user_data[7] if len(user_data) > 7 else "0"
+            }
             
-            if not user['face_encoding']:
-                flash("Face not registered.", "error")
-                return redirect(url_for('login'))
-            return redirect(url_for('verify_face'))
-        flash("Invalid credentials.", "error")
+            if check_password_hash(user['password'], password):
+                session.update({'user_row': user['row'], 'first_name': user['first_name'], 'last_name': user['last_name'], 'role': user['role']})
+                if user['is_temp'] == "1":
+                    return redirect(url_for('reset_password'))
+                if user['role'] == 'admin': 
+                    return redirect(url_for('admin_dashboard'))
+                
+                if not user['face_encoding']:
+                    flash("Face not registered.", "error")
+                    return redirect(url_for('login'))
+                return redirect(url_for('verify_face'))
+        except:
+            flash("Invalid credentials.", "error")
     return render_template('login.html')
 
 @app.route('/forgot-password')
@@ -107,19 +134,16 @@ def forgot_password():
 @app.route('/send-otp', methods=['POST'])
 def send_otp():
     email = request.get_json().get('email')
-    conn = get_db(); cur = conn.cursor(cursor_factory=RealDictCursor)
-    cur.execute("SELECT id FROM users WHERE email = %s", (email,))
-    user = cur.fetchone()
-    cur.close(); conn.close()
-    
-    if not user: return jsonify({"success": False, "message": "Email not found"})
-
-    otp = random.randint(100000, 999999)
-    otp_store[email] = {"otp": otp, "expiry": time.time() + 300}
-    
-    html = f"<div style='font-family:sans-serif;'><h2>OTP: {otp}</h2><p>Valid for 5 mins.</p></div>"
-    if send_email_via_brevo(email, "Password Reset OTP", html):
-        return jsonify({"success": True})
+    user_sheet, _ = get_sheets()
+    try:
+        user_sheet.find(email, in_column=3)
+        otp = random.randint(100000, 999999)
+        otp_store[email] = {"otp": otp, "expiry": time.time() + 300}
+        html = f"<div style='font-family:sans-serif;'><h2>OTP: {otp}</h2><p>Valid for 5 mins.</p></div>"
+        if send_email_via_brevo(email, "Password Reset OTP", html):
+            return jsonify({"success": True})
+    except:
+        return jsonify({"success": False, "message": "Email not found"})
     return jsonify({"success": False, "message": "Email service error"})
 
 @app.route('/verify-otp', methods=['POST'])
@@ -128,11 +152,9 @@ def verify_otp():
     email, otp = data.get('email'), data.get('otp')
     if email in otp_store and str(otp_store[email]['otp']) == str(otp):
         if time.time() < otp_store[email]['expiry']:
-            conn = get_db(); cur = conn.cursor(cursor_factory=RealDictCursor)
-            cur.execute("SELECT id FROM users WHERE email = %s", (email,))
-            user = cur.fetchone()
-            session['reset_user_id'] = user['id']
-            cur.close(); conn.close()
+            user_sheet, _ = get_sheets()
+            cell = user_sheet.find(email, in_column=3)
+            session['reset_user_row'] = cell.row
             return jsonify({"success": True})
     return jsonify({"success": False, "message": "Invalid OTP"})
 
@@ -142,8 +164,8 @@ def reset_password():
 
 @app.route('/update_password', methods=['POST'])
 def update_password():
-    user_id = session.get('user_id') or session.get('reset_user_id')
-    if not user_id: return redirect(url_for('login'))
+    row_id = session.get('user_row') or session.get('reset_user_row')
+    if not row_id: return redirect(url_for('login'))
     
     new_pass = request.form.get('password')
     if not is_password_strong(new_pass):
@@ -151,27 +173,30 @@ def update_password():
         return redirect(url_for('reset_password'))
 
     hashed = generate_password_hash(new_pass)
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("UPDATE users SET password=%s, is_temp_password=0 WHERE id=%s", (hashed, user_id))
-    conn.commit(); cur.close(); conn.close()
-    session.pop('reset_user_id', None)
+    user_sheet, _ = get_sheets()
+    user_sheet.update_cell(row_id, 5, hashed) # Column E: Password
+    user_sheet.update_cell(row_id, 8, "0")    # Column H: Status/is_temp
+    session.pop('reset_user_row', None)
     flash("Password updated successfully!", "success")
     return redirect(url_for('login'))
 
 @app.route('/admin/dashboard')
 def admin_dashboard():
     if session.get('role') != 'admin': return redirect(url_for('login'))
-    conn = get_db(); cur = conn.cursor(cursor_factory=RealDictCursor)
-    cur.execute("SELECT * FROM users WHERE role = 'employee'")
-    employees = cur.fetchall()
+    user_sheet, attn_sheet = get_sheets()
+    
+    # Get all employees
+    all_users = user_sheet.get_all_records()
+    employees = [u for u in all_users if u['Role'] == 'employee']
+    
+    # Get today's logs
+    today = datetime.now().strftime("%Y-%m-%d")
+    all_logs = attn_sheet.get_all_records()
+    
     for emp in employees:
-        cur.execute("""SELECT login_time, logout_time, status 
-                       FROM attendance 
-                       WHERE user_id = %s AND date = CURRENT_DATE 
-                       ORDER BY login_time DESC""", (emp['id'],))
-        emp['daily_logs'] = cur.fetchall()
-        emp['is_registered'] = True if emp['face_encoding'] else False
-    cur.close(); conn.close()
+        emp['daily_logs'] = [l for l in all_logs if l['First Name'] == emp['First Name'] and l['Date'] == today]
+        emp['is_registered'] = True if emp['Face Encoding'] else False
+    
     return render_template('admin_dashboard.html', employees=employees)
 
 @app.route('/add_employee', methods=['POST'])
@@ -179,10 +204,10 @@ def add_employee():
     f, l, e, d = request.form.get('first_name'), request.form.get('last_name'), request.form.get('email'), request.form.get('department')
     temp_pass = "Welcome@123"
     hashed = generate_password_hash(temp_pass)
-    conn = get_db(); cur = conn.cursor()
-    cur.execute("""INSERT INTO users (first_name, last_name, email, department, password, role, is_temp_password, face_encoding) 
-                   VALUES (%s,%s,%s,%s,%s,'employee',1, '')""", (f,l,e,d,hashed))
-    conn.commit(); cur.close(); conn.close()
+    
+    user_sheet, _ = get_sheets()
+    # A:First, B:Last, C:Email, D:Dept, E:Pass, F:Role, G:Encoding, H:is_temp
+    user_sheet.append_row([f, l, e, d, hashed, 'employee', '', '1'])
     
     html = f"<h3>Welcome {f}!</h3><p>Your temp pass is: {temp_pass}</p>"
     send_email_via_brevo(e, "Welcome to FaceAuth", html)
@@ -195,16 +220,15 @@ def verify_face():
 @app.route('/process_verification', methods=['POST'])
 def process_verification():
     data = request.get_json()
-    user_id, mode, lat, lon = session['user_id'], data.get('mode'), data.get('lat'), data.get('lon')
+    row_id, mode = session.get('user_row'), data.get('mode')
     
-    conn = get_db(); cur = conn.cursor(cursor_factory=RealDictCursor)
-    cur.execute("SELECT first_name, last_name, face_encoding FROM users WHERE id = %s", (user_id,))
-    user = cur.fetchone()
+    user_sheet, attn_sheet = get_sheets()
+    user_data = user_sheet.row_values(row_id)
     
-    if not user or not user['face_encoding']:
+    if len(user_data) < 7 or not user_data[6]:
         return jsonify({"success": False, "message": "No face data"})
 
-    stored_enc = np.array(json.loads(user['face_encoding']))
+    stored_enc = np.array(json.loads(user_data[6]))
     img_data = base64.b64decode(data['image'].split(',')[1])
     nparr = np.frombuffer(img_data, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -212,38 +236,48 @@ def process_verification():
     
     if len(live_enc) > 0 and face_recognition.compare_faces([stored_enc], live_enc[0], tolerance=0.5)[0]:
         now = datetime.now()
+        today = now.strftime("%Y-%m-%d")
+        current_time = now.strftime("%H:%M:%S")
+        
         if mode == 'logout':
-            cur.execute("""UPDATE attendance SET logout_time=CURRENT_TIME 
-                           WHERE user_id=%s AND date=CURRENT_DATE AND logout_time IS NULL""", (user_id,))
+            # Find today's log for this user that doesn't have a logout time
+            records = attn_sheet.get_all_records()
+            for i, r in enumerate(records, start=2):
+                if r['First Name'] == user_data[0] and r['Date'] == today and not r['Logout Time']:
+                    attn_sheet.update_cell(i, 5, current_time) # Col E
+                    break
         else:
-            cur.execute("""INSERT INTO attendance (user_id, first_name, last_name, date, login_time, status) 
-                           VALUES (%s, %s, %s, CURRENT_DATE, CURRENT_TIME, 'Present') 
-                           ON CONFLICT (user_id, date) DO NOTHING""", 
-                        (user_id, user['first_name'], user['last_name']))
-        conn.commit(); cur.close(); conn.close()
+            # Check if already logged in today
+            records = attn_sheet.get_all_records()
+            exists = any(r['First Name'] == user_data[0] and r['Date'] == today for r in records)
+            if not exists:
+                attn_sheet.append_row([user_data[0], user_data[1], today, current_time, "", "Present"])
+        
         session['verified'] = True
         return jsonify({"success": True})
     
-    cur.close(); conn.close()
     return jsonify({"success": False})
 
 @app.route('/employee/dashboard')
 def employee_dashboard():
-    if 'user_id' not in session or not session.get('verified'): return redirect(url_for('login'))
-    conn = get_db(); cur = conn.cursor(cursor_factory=RealDictCursor)
-    cur.execute("SELECT * FROM attendance WHERE user_id=%s AND date=CURRENT_DATE ORDER BY login_time DESC", (session['user_id'],))
-    records = cur.fetchall()
-    cur.close(); conn.close()
+    if 'user_row' not in session or not session.get('verified'): return redirect(url_for('login'))
+    _, attn_sheet = get_sheets()
+    all_logs = attn_sheet.get_all_records()
+    today = datetime.now().strftime("%Y-%m-%d")
+    records = [l for l in all_logs if l['First Name'] == session['first_name'] and l['Date'] == today]
+    
     return render_template('employee_dashboard.html', records=records, name=session.get('first_name'))
 
 @app.route('/register_face/<int:user_id>')
 def register_face(user_id): 
-    session['registering_id'] = user_id
+    # In Sheets version, we use the row number as the ID
+    session['registering_row'] = user_id
     return render_template('register_face.html', user_id=user_id)
 
 @app.route('/process_registration', methods=['POST'])
 def process_registration():
-    uid, data = session.get('registering_id'), request.get_json()
+    row_id = session.get('registering_row')
+    data = request.get_json()
     img_data = base64.b64decode(data['image'].split(',')[1])
     nparr = np.frombuffer(img_data, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
@@ -251,9 +285,8 @@ def process_registration():
     
     if len(encs) > 0:
         encoding_str = json.dumps(encs[0].tolist())
-        conn = get_db(); cur = conn.cursor()
-        cur.execute("UPDATE users SET face_encoding = %s WHERE id = %s", (encoding_str, uid))
-        conn.commit(); cur.close(); conn.close()
+        user_sheet, _ = get_sheets()
+        user_sheet.update_cell(row_id, 7, encoding_str) # Column G
         return jsonify({"success": True})
     return jsonify({"success": False})
 
