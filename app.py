@@ -12,6 +12,7 @@ import re
 import json
 import sys
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
+from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 from dotenv import load_dotenv
@@ -30,6 +31,7 @@ except ImportError:
 load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET")
+CORS(app) # CRITICAL: Allows Vercel to talk to Render
 
 # --- GOOGLE SHEETS CONNECTION ---
 def get_sheets():
@@ -85,10 +87,9 @@ def login():
         email, password = request.form.get('email'), request.form.get('password')
         user_sheet, _ = get_sheets()
         try:
-            cell = user_sheet.find(email, in_column=3)
+            cell = user_sheet.find(email.strip(), in_column=3)
             user_data = user_sheet.row_values(cell.row)
             
-            # Column mapping: A:0, B:1, C:2, D:3, E:4, F:5, G:6, H:7
             if check_password_hash(user_data[4], password):
                 session.update({
                     'user_row': cell.row, 
@@ -101,7 +102,6 @@ def login():
                 if user_data[5] == 'admin': 
                     return redirect(url_for('admin_dashboard'))
                 
-                # Check for face encoding in Col G (Index 6)
                 if len(user_data) < 7 or not user_data[6]:
                     flash("Face not registered.", "error")
                     return redirect(url_for('login'))
@@ -116,32 +116,28 @@ def admin_dashboard():
     user_sheet, attn_sheet = get_sheets()
     all_users = user_sheet.get_all_records()
     
-    # Filter only employees and add row IDs (start from 2 because of header)
     employees = []
+    # Loop and manually track row index starting from 2 (Row 1 is headers)
     for i, u in enumerate(all_users, start=2):
         if u.get('Role') == 'employee':
-            u['row_id'] = i
+            u['row_id'] = i  # This is the ID passed to the HTML
+            u['is_registered'] = True if u.get('Face Encoding') else False
             employees.append(u)
-    
-    today = datetime.now().strftime("%Y-%m-%d")
-    all_logs = attn_sheet.get_all_records()
-    for emp in employees:
-        emp['daily_logs'] = [l for l in all_logs if l['First Name'] == emp['First Name'] and l['Date'] == today]
-        emp['is_registered'] = True if emp.get('Face Encoding') else False
     
     return render_template('admin_dashboard.html', employees=employees)
 
 @app.route('/add_employee', methods=['POST'])
 def add_employee():
+    if session.get('role') != 'admin': return redirect(url_for('login'))
     f, l, e, d = request.form.get('first_name'), request.form.get('last_name'), request.form.get('email'), request.form.get('department')
     temp_pass = "Welcome@123"
     hashed = generate_password_hash(temp_pass)
     user_sheet, _ = get_sheets()
     user_sheet.append_row([f, l, e, d, hashed, 'employee', '', '1'])
-    send_email_via_brevo(e, "Welcome", f"<h3>Welcome {f}!</h3><p>Temp Pass: {temp_pass}</p>")
+    send_email_via_brevo(e, "Welcome Staff", f"<h3>Welcome {f}!</h3><p>Your temporary password is: {temp_pass}</p>")
+    flash(f"Employee {f} added successfully!", "success")
     return redirect(url_for('admin_dashboard'))
 
-# --- NEW: EDIT ROUTE ---
 @app.route('/edit_employee/<int:row_id>', methods=['POST'])
 def edit_employee(row_id):
     if session.get('role') != 'admin': return redirect(url_for('login'))
@@ -150,16 +146,15 @@ def edit_employee(row_id):
     user_sheet.update_cell(row_id, 1, f) # Col A
     user_sheet.update_cell(row_id, 2, l) # Col B
     user_sheet.update_cell(row_id, 4, d) # Col D
-    flash("Employee updated!", "success")
+    flash("Details updated successfully!", "success")
     return redirect(url_for('admin_dashboard'))
 
-# --- NEW: DELETE ROUTE ---
 @app.route('/delete_employee/<int:row_id>')
 def delete_employee(row_id):
     if session.get('role') != 'admin': return redirect(url_for('login'))
     user_sheet, _ = get_sheets()
     user_sheet.delete_rows(row_id)
-    flash("Employee removed.", "success")
+    flash("Employee removed from system.", "success")
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/register_face/<int:user_id>')
@@ -179,7 +174,7 @@ def process_registration():
     if len(encs) > 0:
         encoding_str = json.dumps(encs[0].tolist())
         user_sheet, _ = get_sheets()
-        user_sheet.update_cell(row_id, 7, encoding_str) # Col G
+        user_sheet.update_cell(row_id, 7, encoding_str)
         return jsonify({"success": True})
     return jsonify({"success": False})
 
@@ -217,15 +212,6 @@ def process_verification():
         session['verified'] = True
         return jsonify({"success": True})
     return jsonify({"success": False})
-
-@app.route('/employee/dashboard')
-def employee_dashboard():
-    if 'user_row' not in session or not session.get('verified'): return redirect(url_for('login'))
-    _, attn_sheet = get_sheets()
-    all_logs = attn_sheet.get_all_records()
-    today = datetime.now().strftime("%Y-%m-%d")
-    records = [l for l in all_logs if l['First Name'] == session['first_name'] and l['Date'] == today]
-    return render_template('employee_dashboard.html', records=records, name=session.get('first_name'))
 
 @app.route('/logout')
 def logout(): 
