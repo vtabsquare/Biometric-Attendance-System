@@ -46,13 +46,13 @@
                             <span style="color: green;">✅ Registered</span>
                         {% else %}
                             <span style="color: red;">❌ Not Registered</span>
-                            <br><a href="/register_face/{{ emp.row_id }}">Register Now</a>
+                            <br><a href="https://biometric-attendance-system-tsca.onrender.com/register_face/{{ emp.row_id }}">Register Now</a>
                         {% endif %}
                     </td>
                     <td>
                         <button class="btn btn-edit" onclick="openEditModal('{{ emp.row_id }}', '{{ emp['First Name'] }}', '{{ emp['Last Name'] }}', '{{ emp['Department'] }}')">Edit</button>
                         
-                        <a href="/delete_employee/{{ emp.row_id }}" class="btn btn-delete" onclick="return confirm('Are you sure you want to delete this employee?')">Delete</a>
+                        <a href="https://biometric-attendance-system-tsca.onrender.com/delete_employee/{{ emp.row_id }}" class="btn btn-delete" onclick="return confirm('Are you sure?')">Delete</a>
                     </td>
                 </tr>
                 {% endfor %}
@@ -63,7 +63,7 @@
     <div id="addModal" class="modal">
         <div class="modal-content">
             <h3>Add New Employee</h3>
-            <form action="/add_employee" method="POST">
+            <form action="https://biometric-attendance-system-tsca.onrender.com/add_employee" method="POST">
                 <input type="text" name="first_name" placeholder="First Name" required><br><br>
                 <input type="text" name="last_name" placeholder="Last Name" required><br><br>
                 <input type="email" name="email" placeholder="Email" required><br><br>
@@ -92,8 +92,8 @@
             document.getElementById('edit_f').value = f;
             document.getElementById('edit_l').value = l;
             document.getElementById('edit_d').value = d;
-            // Update the form action dynamically with the correct Row ID
-            document.getElementById('editForm').action = "/edit_employee/" + rowId;
+            // Fixed Edit Action with Absolute Path
+            document.getElementById('editForm').action = "https://biometric-attendance-system-tsca.onrender.com/edit_employee/" + rowId;
             document.getElementById('editModal').style.display = 'block';
         }
     </script>
