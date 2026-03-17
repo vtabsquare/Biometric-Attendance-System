@@ -3,38 +3,68 @@
 <head>
     <meta charset="UTF-8">
     <title>Employee Dashboard - FaceAuth</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='220') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='225') }}">
     <style>
         :root { --primary: #1a73e8; --bg: #f8fafc; --sidebar: #ffffff; }
         body { display: flex; background: var(--bg); margin: 0; font-family: 'Inter', sans-serif; min-height: 100vh; }
         
-        /* Sidebar Styling matching Admin */
         .sidebar { width: 240px; background: var(--sidebar); height: 100vh; border-right: 1px solid #e2e8f0; padding: 30px; position: fixed; display: flex; flex-direction: column; }
         .nav-link { color: var(--primary); font-weight: 600; text-decoration: none; padding: 12px 18px; border-radius: 10px; background: #eff6ff; margin-bottom: 10px; display: block; }
         .logout-link { margin-top: auto; color: #ef4444; text-decoration: none; font-weight: 600; padding: 12px; display: block; }
 
         .main-content { margin-left: 270px; padding: 40px; width: calc(100% - 270px); }
+        .timer-display { background: #eff6ff; color: #1a73e8; padding: 10px 25px; border-radius: 50px; font-weight: 700; font-size: 14px; border: 1px solid #dbeafe; min-width: 160px; text-align: center; }
         
-        .timer-display { background: #eff6ff; color: #1a73e8; padding: 10px 25px; border-radius: 50px; font-weight: 700; font-size: 14px; border: 1px solid #dbeafe; }
+        /* CUSTOM WARNING OVERLAY */
+        #warningOverlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(15, 23, 42, 0.9); z-index: 9999; backdrop-filter: blur(8px);
+            align-items: center; justify-content: center;
+        }
+        .warning-card {
+            background: white; padding: 40px; border-radius: 24px; text-align: center;
+            max-width: 450px; width: 90%; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+        .flashing-light {
+            width: 20px; height: 20px; background: #ef4444; border-radius: 50%;
+            margin: 0 auto 20px; animation: blink 0.8s infinite;
+            box-shadow: 0 0 15px #ef4444;
+        }
+        @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+        
+        .btn-verify-now {
+            background: #ef4444; color: white; padding: 15px 30px; border-radius: 12px;
+            border: none; font-weight: 800; cursor: pointer; font-size: 16px; margin-top: 20px;
+            width: 100%; transition: 0.3s;
+        }
+        .btn-verify-now:hover { background: #dc2626; transform: scale(1.02); }
+
+        /* Standard Activity Card */
         .activity-card { background: white; border-radius: 24px; padding: 40px; border: 1px solid #edf2f7; box-shadow: 0 4px 20px rgba(0,0,0,0.02); }
-        
         table { width: 100%; border-collapse: collapse; margin-top: 25px; }
-        th { text-align: left; color: #64748b; padding: 15px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #f1f5f9; }
+        th { text-align: left; color: #64748b; padding: 15px; font-size: 13px; text-transform: uppercase; border-bottom: 1px solid #f1f5f9; }
         td { padding: 18px 15px; border-top: 1px solid #f8fafc; color: #1e293b; font-weight: 500; font-size: 14px; }
-        
         .pill { padding: 5px 14px; border-radius: 8px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
         .active { background: #e0f2fe; color: #0369a1; }
         .completed { background: #dcfce7; color: #15803d; }
     </style>
 </head>
 <body>
+
+    <div id="warningOverlay">
+        <div class="warning-card">
+            <div class="flashing-light"></div>
+            <h2 style="color: #1e293b; margin-bottom: 10px;">Security Re-Verification</h2>
+            <p id="warningText" style="color: #64748b; line-height: 1.6;"></p>
+            <button class="btn-verify-now" onclick="window.location.href='/verify-face'">Verify Face Now</button>
+            <p style="margin-top: 20px; font-size: 12px; color: #94a3b8;">Refusing to verify will lead to automatic logout.</p>
+        </div>
+    </div>
+
     <div class="sidebar">
         <h2 style="color:var(--primary); margin-bottom: 40px;">FaceAuth</h2>
         <a href="#" class="nav-link">My Attendance</a>
-        
-        <a href="https://biometric-attendance-system-tsca.onrender.com/verify-face?mode=logout" class="logout-link">
-            Secure Logout →
-        </a>
+        <a href="/verify-face?mode=logout" class="logout-link">Secure Logout →</a>
     </div>
 
     <div class="main-content">
@@ -43,7 +73,7 @@
                 <h1>Welcome, {{ name }}!</h1>
                 <p style="color:#64748b">Your biometric session is active. Re-verify every 2 hours.</p>
             </div>
-            <div class="timer-display">🕒 Next Scan: <span id="timer">120:00</span></div>
+            <div class="timer-display">🕒 <span id="timer">Calculating...</span></div>
         </div>
 
         <div class="activity-card">
@@ -70,44 +100,61 @@
                         </td>
                     </tr>
                     {% endfor %}
-                    {% if not records %}
-                    <tr>
-                        <td colspan="3" style="text-align:center; padding:40px; color:#94a3b8;">No activity recorded for today yet.</td>
-                    </tr>
-                    {% endif %}
                 </tbody>
             </table>
         </div>
     </div>
 
     <script>
-        function startTimer(duration, display) {
-            var timer = duration, minutes, seconds;
-            var countdown = setInterval(function () {
-                minutes = parseInt(timer / 60, 10);
-                seconds = parseInt(timer % 60, 10);
+        const loginTime = {{ session.get('last_auth', 0) }}; 
+        const twoHoursInSeconds = 7200; 
+        let warningCount = 0;
+        let isWarningActive = false;
 
-                minutes = minutes < 10 ? "0" + minutes : minutes;
-                seconds = seconds < 10 ? "0" + seconds : seconds;
+        function updatePersistentTimer() {
+            const currentTime = Math.floor(Date.now() / 1000);
+            const secondsElapsed = currentTime - loginTime;
+            const secondsRemaining = twoHoursInSeconds - secondsElapsed;
+            const display = document.querySelector('#timer');
 
-                display.textContent = minutes + ":" + seconds;
-
-                // 2-HOUR SECURITY RULE
-                if (--timer < 0) {
-                    clearInterval(countdown);
-                    alert("Security Check: Your 2-hour session has expired. Please verify your face again.");
-                    // Redirect to verification
-                    window.location.href = "https://biometric-attendance-system-tsca.onrender.com/verify-face";
+            if (secondsRemaining <= 0) {
+                display.textContent = "Session Expired";
+                if (!isWarningActive) {
+                    showCustomWarning();
                 }
-            }, 1000);
+                return;
+            }
+
+            let minutes = Math.floor(secondsRemaining / 60);
+            let seconds = Math.floor(secondsRemaining % 60);
+            minutes = minutes < 10 ? "0" + minutes : minutes;
+            seconds = seconds < 10 ? "0" + seconds : seconds;
+            display.textContent = "Next Scan: " + minutes + ":" + seconds;
         }
 
-        window.onload = function () {
-            // 7200 seconds = 2 Hours
-            var twoHours = 7200;
-            var display = document.querySelector('#timer');
-            startTimer(twoHours, display);
-        };
+        function showCustomWarning() {
+            isWarningActive = true;
+            warningCount++;
+
+            if (warningCount > 3) {
+                window.location.href = "/verify-face";
+                return;
+            }
+
+            const overlay = document.getElementById('warningOverlay');
+            const text = document.getElementById('warningText');
+            
+            overlay.style.display = 'flex';
+            text.innerHTML = `<strong>Attention ${warningCount}/3:</strong> Your 2-hour work session has ended. Please scan your face to continue recording your attendance.`;
+
+            // If they don't click "Verify Face Now", this runs again in 1 minute
+            setTimeout(() => {
+                if (isWarningActive) showCustomWarning();
+            }, 60000);
+        }
+
+        setInterval(updatePersistentTimer, 1000);
+        updatePersistentTimer();
     </script>
 </body>
 </html>

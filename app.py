@@ -159,6 +159,9 @@ def verify_face():
     mode = request.args.get('mode', 'login') 
     return render_template('verify_face.html', name=session.get('first_name'), mode=mode)
 
+from datetime import datetime, timedelta # Added timedelta
+import pytz
+
 @app.route('/process_verification', methods=['POST'])
 def process_verification():
     data = request.get_json()
@@ -189,14 +192,12 @@ def process_verification():
         current_time = now.strftime("%H:%M:%S")
         
         if mode == 'logout':
-            # Use get_all_records() which depends on the "Location" header in G1
             records = attn_sheet.get_all_records()
             for i, r in enumerate(records, start=2):
                 if r['First Name'] == user_data[0] and r['Date'] == today and not r.get('Logout Time'):
                     attn_sheet.update_cell(i, 5, current_time)
                     break
         else:
-            # Login: Column G (7th item) stores the location_url
             attn_sheet.append_row([
                 user_data[0], 
                 user_data[1], 
@@ -207,7 +208,18 @@ def process_verification():
                 location_url
             ])
         
-        session.update({'verified': True, 'last_auth': time.time()})
+        # --- PERSISTENT TIMER FIX ---
+        # 1. Make the session survive browser/system restart
+        session.permanent = True
+        # 2. Set the server-side session to expire in exactly 2 hours
+        app.permanent_session_lifetime = timedelta(hours=2)
+        
+        # 3. Store the absolute "seconds since epoch" (Unix time)
+        session.update({
+            'verified': True, 
+            'last_auth': time.time()
+        })
+        
         return jsonify({"success": True})
     
     return jsonify({"success": False})
