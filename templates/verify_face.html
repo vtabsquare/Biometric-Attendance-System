@@ -3,11 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <title>Verify Identity - FaceAuth</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='206') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='207') }}">
     <style>
         .verify-container { max-width: 500px; margin: 60px auto; text-align: center; background: white; padding: 40px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
         video { width: 100%; border-radius: 12px; transform: scaleX(-1); background: #000; }
-        .btn-verify { background: #1a73e8; color: white; padding: 15px; border: none; border-radius: 8px; width: 100%; font-weight: 700; cursor: pointer; margin-top: 20px; font-size: 16px; }
+        .btn-verify { background: #1a73e8; color: white; padding: 15px; border: none; border-radius: 8px; width: 100%; font-weight: 700; cursor: pointer; margin-top: 20px; font-size: 16px; transition: 0.3s; }
+        .btn-verify:disabled { background: #ccc; cursor: not-allowed; }
         #status { margin-top: 20px; font-weight: 600; color: #5f6368; }
     </style>
 </head>
@@ -43,12 +44,12 @@
             btn.disabled = true;
             status.innerText = "Fetching High-Accuracy GPS...";
             
-            // Step 1: Get GPS Position with High Accuracy
+            // Step 1: Get GPS Position
             navigator.geolocation.getCurrentPosition((position) => {
                 const lat = position.coords.latitude;
                 const lng = position.coords.longitude;
                 
-                // FIXED URL: Using standard Google Maps format
+                // FIXED URL: Corrected to standard Google Maps format
                 const mapsUrl = `https://www.google.com/maps?q=${lat},${lng}`;
 
                 status.innerText = "Analyzing Face...";
@@ -73,21 +74,28 @@
                     if (data.success) {
                         status.style.color = "#34a853";
                         status.innerText = "Success! Identity & Location Verified.";
+                        
+                        // --- 502 BAD GATEWAY FIX: Added 1.5s Delay ---
                         setTimeout(() => {
                             window.location.href = mode === 'logout' ? "/logout" : "/employee/dashboard";
                         }, 1500);
+                        
                     } else {
                         btn.disabled = false;
                         status.style.color = "#ea4335";
                         status.innerText = "Face not recognized. Try again.";
                     }
+                })
+                .catch(err => {
+                    btn.disabled = false;
+                    status.innerText = "Server Error. Please try again.";
                 });
             }, (error) => {
                 btn.disabled = false;
                 alert("Location Error: Please ensure GPS is ON and permissions are allowed.");
                 status.innerText = "Location access denied.";
             }, {
-                enableHighAccuracy: true, // Forces phone to use GPS instead of Wi-Fi
+                enableHighAccuracy: true,
                 timeout: 10000,
                 maximumAge: 0
             });
