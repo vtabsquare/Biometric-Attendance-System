@@ -12,6 +12,7 @@ import re
 import json
 import string
 import sys
+import pytz
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -162,6 +163,8 @@ def verify_face():
 def process_verification():
     data = request.get_json()
     row_id, mode = session.get('user_row'), data.get('mode')
+    
+    # Ensure we capture the location URL sent from the frontend
     location_url = data.get('location', 'Location Not Shared')
 
     user_sheet, attn_sheet = get_sheets()
@@ -178,20 +181,35 @@ def process_verification():
     live_enc = face_recognition.face_encodings(rgb_small_frame)
     
     if len(live_enc) > 0 and face_recognition.compare_faces([stored_enc], live_enc[0], tolerance=0.5)[0]:
-        now = datetime.now()
-        today, current_time = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
+        
+        # --- TIMEZONE FIX: Set to India Standard Time (IST) ---
+        IST = pytz.timezone('Asia/Kolkata')
+        now = datetime.now(IST)
+        today = now.strftime("%Y-%m-%d")
+        current_time = now.strftime("%H:%M:%S")
         
         if mode == 'logout':
+            # Use get_all_records() which depends on the "Location" header in G1
             records = attn_sheet.get_all_records()
             for i, r in enumerate(records, start=2):
-                if r['First Name'] == user_data[0] and r['Date'] == today and not r['Logout Time']:
+                if r['First Name'] == user_data[0] and r['Date'] == today and not r.get('Logout Time'):
                     attn_sheet.update_cell(i, 5, current_time)
                     break
         else:
-            attn_sheet.append_row([user_data[0], user_data[1], today, current_time, "", "Present", location_url])
+            # Login: Column G (7th item) stores the location_url
+            attn_sheet.append_row([
+                user_data[0], 
+                user_data[1], 
+                today, 
+                current_time, 
+                "", 
+                "Present", 
+                location_url
+            ])
         
         session.update({'verified': True, 'last_auth': time.time()})
         return jsonify({"success": True})
+    
     return jsonify({"success": False})
 
 # --- DASHBOARDS ---
