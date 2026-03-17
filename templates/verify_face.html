@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Verify Identity - FaceAuth</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='205') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='206') }}">
     <style>
         .verify-container { max-width: 500px; margin: 60px auto; text-align: center; background: white; padding: 40px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
         video { width: 100%; border-radius: 12px; transform: scaleX(-1); background: #000; }
@@ -29,17 +29,26 @@
         const urlParams = new URLSearchParams(window.location.search);
         const mode = urlParams.get('mode') || 'login';
 
+        // Camera Initialization
         navigator.mediaDevices.getUserMedia({ video: true })
-            .then(stream => { video.srcObject = stream; status.innerText = "Camera & GPS Ready"; })
-            .catch(err => { status.innerText = "Camera Error: Please allow access"; });
+            .then(stream => { 
+                video.srcObject = stream; 
+                status.innerText = "Camera Ready. Press button to scan."; 
+            })
+            .catch(err => { 
+                status.innerText = "Camera Error: Please allow access"; 
+            });
 
         btn.onclick = () => {
-            status.innerText = "Capturing Location...";
+            btn.disabled = true;
+            status.innerText = "Fetching High-Accuracy GPS...";
             
-            // Step 1: Get GPS Position
+            // Step 1: Get GPS Position with High Accuracy
             navigator.geolocation.getCurrentPosition((position) => {
                 const lat = position.coords.latitude;
                 const lng = position.coords.longitude;
+                
+                // FIXED URL: Using standard Google Maps format
                 const mapsUrl = `https://www.google.com/maps?q=${lat},${lng}`;
 
                 status.innerText = "Analyzing Face...";
@@ -49,8 +58,8 @@
                 context.drawImage(video, 0, 0);
                 const imageData = canvas.toDataURL('image/jpeg');
 
-                // Step 2: Send to Render
-                fetch('https://biometric-attendance-system-tsca.onrender.com/process_verification', {
+                // Step 2: Send to Backend
+                fetch('/process_verification', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ 
@@ -65,18 +74,22 @@
                         status.style.color = "#34a853";
                         status.innerText = "Success! Identity & Location Verified.";
                         setTimeout(() => {
-                            window.location.href = mode === 'logout' ? 
-                                "https://biometric-attendance-system-tsca.onrender.com/logout" : 
-                                "https://biometric-attendance-system-tsca.onrender.com/employee/dashboard";
+                            window.location.href = mode === 'logout' ? "/logout" : "/employee/dashboard";
                         }, 1500);
                     } else {
+                        btn.disabled = false;
                         status.style.color = "#ea4335";
                         status.innerText = "Face not recognized. Try again.";
                     }
                 });
             }, (error) => {
-                alert("Error: Location access is mandatory for attendance.");
-                status.innerText = "Location Error. Please enable GPS.";
+                btn.disabled = false;
+                alert("Location Error: Please ensure GPS is ON and permissions are allowed.");
+                status.innerText = "Location access denied.";
+            }, {
+                enableHighAccuracy: true, // Forces phone to use GPS instead of Wi-Fi
+                timeout: 10000,
+                maximumAge: 0
             });
         };
     </script>
