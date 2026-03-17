@@ -3,48 +3,56 @@
 <head>
     <meta charset="UTF-8">
     <title>Employee Dashboard - FaceAuth</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='201') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='220') }}">
     <style>
-        :root { --primary: #1a73e8; --bg: #f8fafc; }
-        body { display: flex; background: var(--bg); margin: 0; font-family: 'Inter', sans-serif; }
-        .sidebar { width: 240px; background: white; height: 100vh; border-right: 1px solid #e2e8f0; padding: 30px; position: fixed; }
-        .main-content { margin-left: 270px; padding: 40px; width: 100%; }
+        :root { --primary: #1a73e8; --bg: #f8fafc; --sidebar: #ffffff; }
+        body { display: flex; background: var(--bg); margin: 0; font-family: 'Inter', sans-serif; min-height: 100vh; }
         
-        .timer-display { background: #eff6ff; color: #1a73e8; padding: 8px 20px; border-radius: 50px; font-weight: 700; font-size: 14px; }
+        /* Sidebar Styling matching Admin */
+        .sidebar { width: 240px; background: var(--sidebar); height: 100vh; border-right: 1px solid #e2e8f0; padding: 30px; position: fixed; display: flex; flex-direction: column; }
+        .nav-link { color: var(--primary); font-weight: 600; text-decoration: none; padding: 12px 18px; border-radius: 10px; background: #eff6ff; margin-bottom: 10px; display: block; }
+        .logout-link { margin-top: auto; color: #ef4444; text-decoration: none; font-weight: 600; padding: 12px; display: block; }
+
+        .main-content { margin-left: 270px; padding: 40px; width: calc(100% - 270px); }
+        
+        .timer-display { background: #eff6ff; color: #1a73e8; padding: 10px 25px; border-radius: 50px; font-weight: 700; font-size: 14px; border: 1px solid #dbeafe; }
         .activity-card { background: white; border-radius: 24px; padding: 40px; border: 1px solid #edf2f7; box-shadow: 0 4px 20px rgba(0,0,0,0.02); }
         
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th { text-align: left; color: #1e293b; padding: 15px; font-size: 15px; }
-        td { padding: 15px; border-top: 1px solid #f1f5f9; color: #475569; font-weight: 500; }
+        table { width: 100%; border-collapse: collapse; margin-top: 25px; }
+        th { text-align: left; color: #64748b; padding: 15px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #f1f5f9; }
+        td { padding: 18px 15px; border-top: 1px solid #f8fafc; color: #1e293b; font-weight: 500; font-size: 14px; }
         
-        .pill { padding: 4px 12px; border-radius: 6px; font-size: 11px; font-weight: 700; }
+        .pill { padding: 5px 14px; border-radius: 8px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
         .active { background: #e0f2fe; color: #0369a1; }
         .completed { background: #dcfce7; color: #15803d; }
     </style>
 </head>
 <body>
     <div class="sidebar">
-        <h2 style="color:var(--primary)">FaceAuth</h2>
-        <a href="#" class="nav-link active">My Attendance</a>
-        <a href="https://biometric-attendance-system-tsca.onrender.com/verify-face?mode=logout" style="margin-top:auto; color:#ef4444; text-decoration:none;">Secure Logout</a>
+        <h2 style="color:var(--primary); margin-bottom: 40px;">FaceAuth</h2>
+        <a href="#" class="nav-link">My Attendance</a>
+        
+        <a href="https://biometric-attendance-system-tsca.onrender.com/verify-face?mode=logout" class="logout-link">
+            Secure Logout →
+        </a>
     </div>
 
     <div class="main-content">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:40px;">
             <div>
                 <h1>Welcome, {{ name }}!</h1>
-                <p style="color:#64748b">Your session is active. Re-verify every 2 hours.</p>
+                <p style="color:#64748b">Your biometric session is active. Re-verify every 2 hours.</p>
             </div>
             <div class="timer-display">🕒 Next Scan: <span id="timer">120:00</span></div>
         </div>
 
         <div class="activity-card">
-            <h3>Today's Activity Log</h3>
+            <h3 style="margin-top:0; color:#1e293b;">Today's Activity Log</h3>
             <table>
                 <thead>
                     <tr>
-                        <th>Login</th>
-                        <th>Logout</th>
+                        <th>Login Time</th>
+                        <th>Logout Time</th>
                         <th>Status</th>
                     </tr>
                 </thead>
@@ -62,6 +70,11 @@
                         </td>
                     </tr>
                     {% endfor %}
+                    {% if not records %}
+                    <tr>
+                        <td colspan="3" style="text-align:center; padding:40px; color:#94a3b8;">No activity recorded for today yet.</td>
+                    </tr>
+                    {% endif %}
                 </tbody>
             </table>
         </div>
@@ -70,17 +83,30 @@
     <script>
         function startTimer(duration, display) {
             var timer = duration, minutes, seconds;
-            setInterval(function () {
+            var countdown = setInterval(function () {
                 minutes = parseInt(timer / 60, 10);
                 seconds = parseInt(timer % 60, 10);
+
                 minutes = minutes < 10 ? "0" + minutes : minutes;
                 seconds = seconds < 10 ? "0" + seconds : seconds;
+
                 display.textContent = minutes + ":" + seconds;
-                if (--timer < 0) { window.location.reload(); }
+
+                // 2-HOUR SECURITY RULE
+                if (--timer < 0) {
+                    clearInterval(countdown);
+                    alert("Security Check: Your 2-hour session has expired. Please verify your face again.");
+                    // Redirect to verification
+                    window.location.href = "https://biometric-attendance-system-tsca.onrender.com/verify-face";
+                }
             }, 1000);
         }
+
         window.onload = function () {
-            startTimer(7200, document.querySelector('#timer'));
+            // 7200 seconds = 2 Hours
+            var twoHours = 7200;
+            var display = document.querySelector('#timer');
+            startTimer(twoHours, display);
         };
     </script>
 </body>

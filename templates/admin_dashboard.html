@@ -3,12 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <title>Admin Dashboard - FaceAuth</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='210') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='215') }}">
     <style>
         :root { --primary: #1a73e8; --bg: #f8fafc; --sidebar: #ffffff; }
         body { display: flex; background: var(--bg); margin: 0; font-family: 'Inter', sans-serif; height: 100vh; overflow: hidden; }
         
-        /* Sidebar Styling */
         .sidebar { width: 260px; background: var(--sidebar); height: 100vh; border-right: 1px solid #e2e8f0; padding: 30px; position: fixed; display: flex; flex-direction: column; z-index: 10; }
         .logo { display: flex; align-items: center; gap: 12px; margin-bottom: 50px; }
         .logo-icon { background: var(--primary); color: white; padding: 10px 14px; border-radius: 10px; font-weight: 800; font-size: 20px; }
@@ -16,34 +15,26 @@
         .nav-item { color: var(--primary); font-weight: 600; text-decoration: none; padding: 14px 18px; border-radius: 10px; background: #eff6ff; margin-bottom: 10px; display: flex; align-items: center; gap: 10px; }
         .logout-link { margin-top: auto; color: #ef4444; text-decoration: none; font-weight: 600; padding: 14px; display: block; }
 
-        /* Main Content Area */
         .main-content { margin-left: 260px; padding: 40px; width: calc(100% - 260px); height: 100vh; overflow-y: auto; box-sizing: border-box; }
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 40px; }
         .dashboard-card { background: white; border-radius: 24px; padding: 30px; box-shadow: 0 4px 25px rgba(0,0,0,0.03); border: 1px solid #edf2f7; }
         
-        /* Table Controls */
         table { width: 100%; border-collapse: collapse; }
         th { text-align: left; color: #94a3b8; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; padding: 15px; border-bottom: 1px solid #f1f5f9; }
         td { padding: 25px 15px; border-bottom: 1px solid #f8fafc; vertical-align: top; }
         
-        /* Activity Logs List */
         .log-scroll-area { max-height: 160px; overflow-y: auto; padding-right: 8px; }
         .log-entry { font-size: 13px; margin-bottom: 15px; color: #334155; padding: 12px; background: #fcfcfc; border-radius: 10px; border: 1px solid #f1f5f9; }
         .location-link { font-size: 11px; color: var(--primary); background: #eff6ff; padding: 5px 10px; border-radius: 6px; margin-top: 8px; display: inline-block; text-decoration: none; font-weight: 700; transition: 0.2s; }
         .location-link:hover { background: #dbeafe; transform: translateY(-1px); }
 
-        /* Badges & Buttons */
         .status-badge { background: #dcfce7; color: #166534; padding: 6px 14px; border-radius: 8px; font-size: 12px; font-weight: 700; display: inline-block; }
         .btn-add { background: var(--primary); color: white; padding: 12px 28px; border-radius: 50px; border: none; font-weight: 700; cursor: pointer; transition: 0.3s; box-shadow: 0 4px 12px rgba(26, 115, 232, 0.2); }
-        .btn-add:hover { background: #1557b0; transform: translateY(-2px); }
         .action-btn { background: none; border: none; cursor: pointer; font-size: 18px; transition: 0.2s; padding: 5px; }
-        .action-btn:hover { opacity: 0.7; }
-
-        /* Modal Logic */
+        
         .modal { display: none; position: fixed; z-index: 2000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); }
         .modal-content { background: white; margin: 8% auto; padding: 40px; width: 420px; border-radius: 20px; box-shadow: 0 20px 50px rgba(0,0,0,0.2); }
         input { width: 100%; padding: 14px; margin: 12px 0; border: 1px solid #e2e8f0; border-radius: 10px; box-sizing: border-box; font-size: 14px; }
-        input:focus { border-color: var(--primary); outline: none; box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.1); }
     </style>
 </head>
 <body>
@@ -58,7 +49,7 @@
                 Employees
             </a>
         </nav>
-        <a href="/logout" class="logout-link">Logout</a>
+        <a href="https://biometric-attendance-system-tsca.onrender.com/logout" class="logout-link">Logout</a>
     </div>
 
     <div class="main-content">
@@ -125,7 +116,7 @@
                             <button class="action-btn" onclick="showEditModal('{{ emp.row_id }}', '{{ emp['First Name'] }}', '{{ emp['Last Name'] }}', '{{ emp['Department'] }}')" title="Edit">
                                 <span style="color:var(--primary)">✎</span>
                             </button>
-                            <a href="https://biometric-attendance-system-tsca.onrender.com/delete_employee/{{ emp.row_id }}" class="action-btn" onclick="return confirm('Delete this employee permanently?')" title="Delete">
+                            <a href="https://biometric-attendance-system-tsca.onrender.com/delete_employee/{{ emp.row_id }}" class="action-btn" onclick="return confirm('Delete permanently?')" title="Delete">
                                 <span style="color:#ef4444">🗑</span>
                             </a>
                         </td>
@@ -139,12 +130,11 @@
     <div id="addModal" class="modal">
         <div class="modal-content">
             <h2 style="margin-top:0;">Add New Employee</h2>
-            <p style="color:#64748b; font-size:14px; margin-bottom:20px;">They will receive an email with login details.</p>
             <form action="https://biometric-attendance-system-tsca.onrender.com/add_employee" method="POST">
                 <input type="text" name="first_name" placeholder="First Name" required>
                 <input type="text" name="last_name" placeholder="Last Name" required>
                 <input type="email" name="email" placeholder="Email Address" required>
-                <input type="text" name="department" placeholder="Department (e.g. IT, HR)" required>
+                <input type="text" name="department" placeholder="Department" required>
                 <button type="submit" class="btn-add" style="width:100%; margin-top:15px; border-radius:10px;">Send Invite & Save</button>
                 <button type="button" onclick="hideAddModal()" style="width:100%; background:none; border:none; color:#94a3b8; margin-top:15px; cursor:pointer; font-weight:600;">Cancel</button>
             </form>
@@ -165,7 +155,6 @@
     </div>
 
     <script>
-        // Modal Control Functions
         function showAddModal() { document.getElementById('addModal').style.display = 'block'; }
         function hideAddModal() { document.getElementById('addModal').style.display = 'none'; }
 
@@ -173,17 +162,15 @@
             document.getElementById('edit_f').value = f;
             document.getElementById('edit_l').value = l;
             document.getElementById('edit_d').value = d;
-            // Update the form action to point to the correct row
+            // DYNAMIC EDIT ROUTE
             document.getElementById('editForm').action = "https://biometric-attendance-system-tsca.onrender.com/edit_employee/" + rowId;
             document.getElementById('editModal').style.display = 'block';
         }
         function hideEditModal() { document.getElementById('editModal').style.display = 'none'; }
 
-        // Close on outside click
         window.onclick = function(event) {
             if (event.target.className === 'modal') {
-                hideAddModal();
-                hideEditModal();
+                hideAddModal(); hideEditModal();
             }
         }
     </script>
