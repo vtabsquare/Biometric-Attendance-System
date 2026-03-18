@@ -55,7 +55,6 @@ def get_sheets():
 BREVO_API_KEY = os.getenv("BREVO_API_KEY")
 SENDER_EMAIL = os.getenv("SENDER_EMAIL")
 COMPANY_NAME = os.getenv("COMPANY_NAME")
-otp_store = {} 
 
 # --- HELPERS ---
 def is_password_strong(password):
@@ -107,7 +106,6 @@ def login():
                     'verified': False,
                     'last_auth': time.time() 
                 })
-                # Check for Temporary Password Flag (H column / index 7)
                 if len(user_data) >= 8 and user_data[7] == "1":
                     return redirect(url_for('reset_password_page'))
                 
@@ -121,9 +119,9 @@ def login():
                 
                 return redirect(url_for('verify_face'))
             else:
-                flash("Invalid password.", "error")
-        except Exception as e:
-            flash("User not found or connection error.", "error")
+                flash("Invalid credentials.", "error")
+        except:
+            flash("User not found.", "error")
     return render_template('login.html')
 
 @app.route('/reset-password')
@@ -165,86 +163,80 @@ def process_verification():
     data = request.get_json()
     row_id, mode = session.get('user_row'), data.get('mode')
     
-    # Format the location: "Erode, India (Link)"
-    loc_text = data.get('detailed_location', 'Unknown')
+    loc_text = data.get('detailed_location', 'Unknown Location')
     map_link = data.get('location', '#')
     full_loc_string = f"{loc_text} - {map_link}"
 
-    user_sheet, attn_sheet = get_sheets()
-    user_data = user_sheet.row_values(row_id)
-    
-    # ... (Keep your face_recognition code here to generate 'live_enc') ...
-    
-    # IF FACE MATCHES:
-    if len(live_enc) > 0 and face_recognition.compare_faces([stored_enc], live_enc[0], tolerance=0.5)[0]:
-        IST = pytz.timezone('Asia/Kolkata')
-        now = datetime.now(IST)
-        today, cur_time = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
+    try:
+        user_sheet, attn_sheet = get_sheets()
+        user_data = user_sheet.row_values(row_id)
         
-        # 🛡️ SEARCH FOR OPEN SESSION (Missing Logout Time)
-        records = attn_sheet.get_all_records()
-        open_row_index = None
-        for i, r in enumerate(records, start=2):
-            if r['First Name'] == user_data[0] and r['Date'] == today and not r.get('Logout Time'):
-                open_row_index = i
+        # 🛡️ FACE RECOGNITION LOGIC
+        stored_enc = np.array(json.loads(user_data[6])) # Column G
+        img_data = base64.b64decode(data['image'].split(',')[1])
+        img = cv2.imdecode(np.frombuffer(img_data, np.uint8), cv2.IMREAD_COLOR)
+        rgb_small = cv2.cvtColor(cv2.resize(img, (0,0), fx=0.25, fy=0.25), cv2.COLOR_BGR2RGB)
+        live_enc = face_recognition.face_encodings(rgb_small)
 
-        # CASE 1: Re-verification (After Meeting or Timer end)
-        if open_row_index:
-            # Always close the previous session first
-            attn_sheet.update_cell(open_row_index, 5, cur_time)       # Col E: Logout Time
-            attn_sheet.update_cell(open_row_index, 6, "Present")      # Col F: Status
-            attn_sheet.update_cell(open_row_index, 8, full_loc_string)# Col H: Logout Location (NEW)
+        if len(live_enc) > 0 and face_recognition.compare_faces([stored_enc], live_enc[0], tolerance=0.5)[0]:
+            IST = pytz.timezone('Asia/Kolkata')
+            now = datetime.now(IST)
+            today, cur_time = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
             
-            # If they just finished a meeting/timer, kick them to landing for fresh start
-            if mode != 'login' and mode != 'logout':
-                session.clear()
-                return jsonify({"success": True, "redirect": "/"})
+            # 🛡️ FIND OPEN SESSION
+            records = attn_sheet.get_all_records()
+            open_row_index = None
+            for i, r in enumerate(records, start=2):
+                if r['First Name'] == user_data[0] and r['Date'] == today and not r.get('Logout Time'):
+                    open_row_index = i
 
-        # CASE 2: Fresh Login
-        if mode == 'login':
-            # Append 8 columns to match your new sheet
-            # A:First, B:Last, C:Date, D:LoginTime, E:LogoutTime, F:Status, G:LoginLoc, H:LogoutLoc
-            attn_sheet.append_row([
-                user_data[0], user_data[1], today, cur_time, "", "Present", full_loc_string, ""
-            ])
+            # UPDATE LOGOUT DATA (Close existing session)
+            if open_row_index:
+                attn_sheet.update_cell(open_row_index, 5, cur_time)       # Col E: Logout Time
+                attn_sheet.update_cell(open_row_index, 6, "Present")      # Col F: Status
+                attn_sheet.update_cell(open_row_index, 8, full_loc_string)# Col H: Logout Location
+                
+                if mode != 'login' and mode != 'logout':
+                    session.clear()
+                    return jsonify({"success": True, "redirect": "/"})
 
-        session.permanent = True
-        app.permanent_session_lifetime = timedelta(hours=2)
-        session.update({'verified': True, 'last_auth': time.time()})
-        return jsonify({"success": True, "redirect": "/employee/dashboard"})
-    
-    return jsonify({"success": False})
+            # FRESH LOGIN (New session)
+            if mode == 'login':
+                attn_sheet.append_row([
+                    user_data[0], user_data[1], today, cur_time, "", "Present", full_loc_string, ""
+                ])
+
+            session.update({'verified': True, 'last_auth': time.time()})
+            return jsonify({"success": True, "redirect": "/employee/dashboard"})
+        
+        return jsonify({"success": False, "message": "Face not recognized"})
+    except Exception as e:
+        print(f"Verification Error: {e}")
+        return jsonify({"success": False, "message": "Server Error"})
 
 # --- MEETING MODE ---
 
 @app.route('/start_meeting', methods=['POST'])
 def start_meeting():
     if 'user_row' not in session: return jsonify({"success": False})
-    
     data = request.get_json()
-    duration = int(data.get('duration', 10)) # Get the 10, 20... 60 mins from frontend
-    
+    duration = int(data.get('duration', 10)) 
     try:
         _, attn_sheet = get_sheets()
         IST = pytz.timezone('Asia/Kolkata')
         today = datetime.now(IST).strftime("%Y-%m-%d")
-        
-        # 1. Update Status to 'In Meeting' in Spreadsheet
         records = attn_sheet.get_all_records()
         for i, r in enumerate(records, start=2):
             if r['First Name'] == session.get('first_name') and r['Date'] == today and not r.get('Logout Time'):
                 attn_sheet.update_cell(i, 6, "In Meeting")
                 break
         
-        # 2. EXTEND SERVER SESSION (CRITICAL)
-        # This keeps the user logged in for the duration of the meeting + original time
+        # EXTEND SERVER SESSION
         session.permanent = True
-        new_lifetime = 7200 + (duration * 60) # 2 hours + meeting duration
+        new_lifetime = 7200 + (duration * 60) 
         app.permanent_session_lifetime = timedelta(seconds=new_lifetime)
-        
         return jsonify({"success": True})
-    except Exception as e:
-        print(f"Meeting Error: {e}")
+    except:
         return jsonify({"success": False})
 
 # --- DASHBOARDS ---
@@ -269,9 +261,9 @@ def admin_dashboard():
 def employee_dashboard():
     if 'user_row' not in session or not session.get('verified'):
         return redirect(url_for('login'))
-    if time.time() - session.get('last_auth', 0) > 7200:
-        session['verified'] = False
-        return redirect(url_for('verify_face'))
+    if time.time() - session.get('last_auth', 0) > 86400: # 24h hard limit
+        session.clear()
+        return redirect(url_for('login'))
     _, attn_sheet = get_sheets()
     today = datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y-%m-%d")
     all_attendance = attn_sheet.get_all_records()
@@ -282,9 +274,10 @@ def employee_dashboard():
 @app.route('/check_session')
 def check_session():
     elapsed = time.time() - session.get('last_auth', 0)
-    if elapsed > 7200:
+    limit = app.permanent_session_lifetime.total_seconds()
+    if elapsed > limit:
         return jsonify({"expired": True})
-    return jsonify({"expired": False, "remaining": 7200 - elapsed})
+    return jsonify({"expired": False, "remaining": limit - elapsed})
 
 # --- MANAGEMENT & CLEANUP ---
 
@@ -302,19 +295,15 @@ def add_employee():
         email_html = f"""
         <div style="background-color: #121212; color: #ffffff; padding: 40px; font-family: sans-serif; border-radius: 10px;">
             <h1 style="color: #4c8bf5; font-size: 28px;">Hello {f},</h1>
-            <p style="font-size: 18px; color: #e0e0e0;">Your workspace account is ready. Please follow these steps:</p>
-            <div style="margin: 25px 0;">
-                <p style="font-size: 18px;"><b>1. Temporary Password:</b> <span style="color: #ffffff; background: #333; padding: 5px 10px; border-radius: 5px;">{temp_pass}</span></p>
-                <p style="font-size: 18px;"><b>2. Face Registration:</b> You must register your face profile before logging in.</p>
-            </div>
-            <a href="{reg_link}" style="display: inline-block; background-color: #4c8bf5; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 18px;">Register Face Now</a>
-            <p style="margin-top: 30px; font-size: 14px; color: #999;">Note: You will be asked to change your password on first login.</p>
+            <p style="font-size: 18px;">Your workspace account is ready.</p>
+            <p><b>Temp Password:</b> {temp_pass}</p>
+            <a href="{reg_link}" style="display: inline-block; background-color: #4c8bf5; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: bold;">Register Face Now</a>
         </div>
         """
         send_email_via_brevo(e, "Account Ready - Action Required", email_html)
-        flash(f"Employee {f} added and invite sent!", "success")
+        flash(f"Employee {f} added!", "success")
     except Exception as err:
-        flash(f"Error adding employee: {err}", "error")
+        flash(f"Error: {err}", "error")
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/delete_employee/<int:row_id>')
@@ -329,7 +318,7 @@ def delete_employee(row_id):
         for i in range(len(attn_recs) + 1, 1, -1):
             if attn_sheet.cell(i, 1).value == first_name:
                 attn_sheet.delete_rows(i)
-        flash(f"Employee {first_name} and all logs deleted.", "success")
+        flash(f"Deleted {first_name} and logs.", "success")
     except:
         flash("Deletion error.", "error")
     return redirect(url_for('admin_dashboard'))
@@ -340,7 +329,7 @@ def update_password():
     if not row_id: return redirect(url_for('login'))
     new_pass = request.form.get('password')
     if not is_password_strong(new_pass):
-        flash("Weak password! Need 8+ chars, Uppercase, Number, and Special Char.", "error")
+        flash("Weak password!", "error")
         return redirect(url_for('reset_password_page'))
     user_sheet, _ = get_sheets()
     user_sheet.update_cell(row_id, 5, generate_password_hash(new_pass))

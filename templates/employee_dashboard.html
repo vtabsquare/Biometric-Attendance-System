@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Employee Dashboard - FaceAuth</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='230') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='235') }}">
     <style>
         :root { --primary: #1a73e8; --bg: #f8fafc; --sidebar: #ffffff; }
         body { display: flex; background: var(--bg); margin: 0; font-family: 'Inter', sans-serif; min-height: 100vh; }
@@ -15,14 +15,12 @@
         .main-content { margin-left: 270px; padding: 40px; width: calc(100% - 270px); }
         .timer-display { background: #eff6ff; color: #1a73e8; padding: 10px 25px; border-radius: 50px; font-weight: 700; font-size: 14px; border: 1px solid #dbeafe; min-width: 160px; text-align: center; }
         
-        /* MEETING CONTROL BAR */
         .meeting-bar {
             background: white; padding: 20px; border-radius: 15px; border: 1px solid #e2e8f0;
             display: flex; align-items: center; gap: 15px; margin-bottom: 25px;
             box-shadow: 0 4px 6px rgba(0,0,0,0.05);
         }
 
-        /* CUSTOM WARNING OVERLAY */
         #warningOverlay {
             display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(15, 23, 42, 0.9); z-index: 9999; backdrop-filter: blur(8px);
@@ -94,11 +92,14 @@
 
         <div class="meeting-bar">
             <div id="startMeetingUI" style="display: flex; align-items: center; gap: 10px;">
-                <span style="font-weight: 700; color: #475569;">🤝 Sudden Meeting?</span>
+                <span style="font-weight: 700; color: #475569;">🤝 Meeting</span>
                 <select id="meetingDuration" style="padding: 8px; border-radius: 8px; border: 1px solid #cbd5e1; font-weight: 600; color: #1a73e8;">
                     <option value="600">Add 10 Mins</option>
                     <option value="1200">Add 20 Mins</option>
                     <option value="1800">Add 30 Mins</option>
+                    <option value="2400">Add 40 Mins</option>
+                    <option value="3000">Add 50 Mins</option>
+                    <option value="3600">Add 60 Mins</option>
                 </select>
                 <button onclick="meetingAction('start')" style="background: #1a73e8; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 700; cursor: pointer;">Start Meeting Mode</button>
             </div>
@@ -140,9 +141,8 @@
     </div>
 
     <script>
-        // --- LIVE SETTINGS ---
         const loginTime = {{ session.get('last_auth', 0) }}; 
-        const baseTime = 7200; // 2 Hours in seconds
+        const baseTime = 7200; 
         let extraTime = 0; 
         
         let warningCount = 0;
@@ -150,17 +150,24 @@
 
         async function meetingAction(type) {
             if (type === 'start') {
-                const snooze = parseInt(document.getElementById('meetingDuration').value);
-                const res = await fetch('/start_meeting', { method: 'POST' });
+                const snoozeSeconds = parseInt(document.getElementById('meetingDuration').value);
+                const snoozeMinutes = snoozeSeconds / 60;
+                
+                // Sending the specific duration (10-60) to the backend
+                const res = await fetch('/start_meeting', { 
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ duration: snoozeMinutes })
+                });
+
                 if (res.ok) {
-                    extraTime += snooze; 
+                    extraTime += snoozeSeconds; 
                     document.getElementById('startMeetingUI').style.display = 'none';
                     document.getElementById('endMeetingUI').style.display = 'flex';
                     dismissWarning();
-                    alert(`Meeting Mode Active. Status updated. Timer extended by ${snooze/60} mins.`);
+                    alert(`Meeting Mode Active. Status updated. Timer extended by ${snoozeMinutes} mins.`);
                 }
             } else {
-                // End Meeting: Force Face Verification
                 window.location.href = "/verify-face";
             }
         }
@@ -195,7 +202,7 @@
             overlay.style.display = 'flex';
 
             if (warningCount === 1) {
-                text.innerHTML = "<strong>Warning 1/3:</strong> Session ended. If you are in a meeting, please use 'Start Meeting Mode' on the dashboard.";
+                text.innerHTML = "<strong>Warning 1/3:</strong> Session ended. If you are in a meeting, please use 'Meeting' mode on the dashboard.";
             } else if (warningCount === 2) {
                 text.innerHTML = "<strong>Warning 2/3:</strong> This is your second reminder. Please extend via Meeting Mode or verify your face.";
             } else if (warningCount >= 3) {
