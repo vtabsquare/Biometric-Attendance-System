@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Admin Dashboard - FaceAuth</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='223') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='231') }}">
     <style>
         :root { --primary: #1a73e8; --bg: #f8fafc; --sidebar: #ffffff; }
         body { display: flex; background: var(--bg); margin: 0; font-family: 'Inter', sans-serif; height: 100vh; overflow: hidden; }
@@ -18,32 +18,38 @@
         .main-content { margin-left: 260px; padding: 40px; width: calc(100% - 260px); height: 100vh; overflow-y: auto; box-sizing: border-box; }
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
         
-        /* SEARCH BOX STYLING */
         .search-container { position: relative; margin-bottom: 25px; width: 100%; max-width: 400px; }
-        .search-input { width: 100%; padding: 12px 20px 12px 40px; border-radius: 12px; border: 1px solid #e2e8f0; font-size: 14px; outline: none; transition: 0.3s; box-shadow: 0 2px 10px rgba(0,0,0,0.02); }
-        .search-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(26, 115, 232, 0.1); }
-        .search-icon { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: #94a3b8; pointer-events: none; }
+        .search-input { width: 100%; padding: 12px 20px 12px 40px; border-radius: 12px; border: 1px solid #e2e8f0; font-size: 14px; outline: none; transition: 0.3s; }
+        .search-icon { position: absolute; left: 15px; top: 50%; transform: translateY(-50%); color: #94a3b8; }
 
         .dashboard-card { background: white; border-radius: 24px; padding: 30px; box-shadow: 0 4px 25px rgba(0,0,0,0.03); border: 1px solid #edf2f7; }
         
         table { width: 100%; border-collapse: collapse; }
-        th { text-align: left; color: #94a3b8; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; padding: 15px; border-bottom: 1px solid #f1f5f9; }
+        th { text-align: left; color: #94a3b8; font-size: 11px; text-transform: uppercase; padding: 15px; border-bottom: 1px solid #f1f5f9; }
         td { padding: 25px 15px; border-bottom: 1px solid #f8fafc; vertical-align: top; }
         
-        .log-scroll-area { max-height: 180px; overflow-y: auto; padding-right: 8px; }
-        .log-entry { font-size: 13px; margin-bottom: 15px; color: #334155; padding: 12px; background: #fcfcfc; border-radius: 10px; border: 1px solid #f1f5f9; position: relative; }
+        .log-scroll-area { max-height: 180px; overflow-y: auto; }
+        .log-entry { font-size: 13px; margin-bottom: 10px; color: #334155; padding: 10px; background: #fcfcfc; border-radius: 10px; border: 1px solid #f1f5f9; }
         
-        .location-link { font-size: 11px; color: #1a73e8; background: #eef2ff; padding: 6px 12px; border-radius: 6px; margin-top: 10px; display: inline-block; text-decoration: none; font-weight: 700; border: 1px solid #dbeafe; transition: 0.2s; }
-        .location-link:hover { background: #1a73e8; color: white; transform: translateY(-1px); }
-        .no-location { font-size: 11px; color: #94a3b8; background: #f1f5f9; padding: 6px 12px; border-radius: 6px; margin-top: 10px; display: inline-block; font-weight: 600; }
+        /* STATUS PILLS */
+        .pill { padding: 6px 12px; border-radius: 8px; font-size: 11px; font-weight: 700; text-transform: uppercase; display: inline-block; }
+        .active { background: #dcfce7; color: #166534; } /* Present */
+        .completed { background: #f1f5f9; color: #64748b; } /* Logged Out */
+        
+        /* NEW: MEETING STATUS STYLING */
+        .meeting { 
+            background: #fef3c7; 
+            color: #d97706; 
+            border: 1px solid #fbbf24; 
+            animation: blinker 1.5s linear infinite; 
+        }
+        @keyframes blinker { 50% { opacity: 0.4; } }
 
-        .status-badge { background: #dcfce7; color: #166534; padding: 6px 14px; border-radius: 8px; font-size: 12px; font-weight: 700; display: inline-block; }
-        .btn-add { background: var(--primary); color: white; padding: 12px 28px; border-radius: 50px; border: none; font-weight: 700; cursor: pointer; transition: 0.3s; box-shadow: 0 4px 12px rgba(26, 115, 232, 0.2); }
-        .action-btn { background: none; border: none; cursor: pointer; font-size: 18px; transition: 0.2s; padding: 5px; }
+        .btn-add { background: var(--primary); color: white; padding: 12px 28px; border-radius: 50px; border: none; font-weight: 700; cursor: pointer; }
+        .action-btn { background: none; border: none; cursor: pointer; font-size: 18px; padding: 5px; text-decoration: none; }
         
         .modal { display: none; position: fixed; z-index: 2000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); }
         .modal-content { background: white; margin: 8% auto; padding: 40px; width: 420px; border-radius: 20px; box-shadow: 0 20px 50px rgba(0,0,0,0.2); }
-        input { width: 100%; padding: 14px; margin: 12px 0; border: 1px solid #e2e8f0; border-radius: 10px; box-sizing: border-box; font-size: 14px; }
     </style>
 </head>
 <body>
@@ -53,10 +59,7 @@
             <span class="logo-text">FaceAuth</span>
         </div>
         <nav style="flex: 1;">
-            <a href="#" class="nav-item">
-                <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
-                Employees
-            </a>
+            <a href="#" class="nav-item">Employees</a>
         </nav>
         <a href="/logout" class="logout-link">Logout</a>
     </div>
@@ -64,21 +67,21 @@
     <div class="main-content">
         <div class="header">
             <div>
-                <h1>Employee Management</h1>
-                <p style="color:#64748b">Administrator: <strong>{{ session['first_name'] }}</strong></p>
+                <h1>Admin Command Center</h1>
+                <p style="color:#64748b">Connected to: <strong>Office_Attendance_System</strong></p>
             </div>
             <button class="btn-add" onclick="showAddModal()">+ Add Employee</button>
         </div>
 
         <div class="search-container">
             <span class="search-icon">🔍</span>
-            <input type="text" id="employeeSearch" class="search-input" placeholder="Search by name, email or department..." onkeyup="filterEmployees()">
+            <input type="text" id="employeeSearch" class="search-input" placeholder="Search name or department..." onkeyup="filterEmployees()">
         </div>
 
-        {% with messages = get_flashed_messages() %}
+        {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
-                {% for message in messages %}
-                    <div style="background:#dcfce7; color:#166534; padding:15px; border-radius:12px; margin-bottom:25px; font-weight:600;">{{ message }}</div>
+                {% for category, message in messages %}
+                    <div style="background: {{ '#dcfce7' if category == 'success' else '#fee2e2' }}; color: {{ '#166534' if category == 'success' else '#991b1b' }}; padding:15px; border-radius:12px; margin-bottom:25px; font-weight:600;">{{ message }}</div>
                 {% endfor %}
             {% endif %}
         {% endwith %}
@@ -87,53 +90,53 @@
             <table id="employeeTable">
                 <thead>
                     <tr>
-                        <th style="width: 25%;">Employee</th>
-                        <th style="width: 40%;">Activity Logs (Today - IST)</th>
-                        <th style="width: 20%;">Biometric Status</th>
-                        <th style="width: 15%;">Manage</th>
+                        <th style="width: 25%;">Employee Profile</th>
+                        <th style="width: 40%;">Attendance Logs (Today)</th>
+                        <th style="width: 20%;">Current Status</th>
+                        <th style="width: 15%;">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for emp in employees %}
                     <tr class="employee-row">
                         <td class="search-cell">
-                            <strong style="font-size: 16px;">{{ emp['First Name'] }} {{ emp['Last Name'] }}</strong><br>
+                            <strong style="font-size: 15px;">{{ emp['First Name'] }} {{ emp['Last Name'] }}</strong><br>
                             <span style="color:#94a3b8; font-size:12px;">{{ emp['Email'] }}</span><br>
-                            <span style="background:#eff6ff; color:var(--primary); font-size:10px; padding:3px 8px; border-radius:5px; font-weight:700; text-transform:uppercase;">{{ emp['Department'] }}</span>
+                            <span style="color:var(--primary); font-size:10px; font-weight:700;">{{ emp['Department'] }}</span>
                         </td>
                         <td>
                             <div class="log-scroll-area">
                                 {% if emp.logs %}
                                     {% for log in emp.logs %}
                                     <div class="log-entry">
-                                        <strong>In:</strong> {{ log['Login Time'] }} | <strong>Out:</strong> {{ log['Logout Time'] if log['Logout Time'] else '--:--' }}<br>
-                                        
+                                        ⏱️ {{ log['Login Time'] }} - {{ log['Logout Time'] if log['Logout Time'] else 'Active' }}
                                         {% if log['Location'] and 'http' in log['Location'] %}
-                                            <a href="{{ log['Location'] }}" target="_blank" class="location-link">📍 View Scan Location</a>
-                                        {% else %}
-                                            <span class="no-location">📍 Location Not Shared</span>
+                                            <br><a href="{{ log['Location'] }}" target="_blank" style="font-size:10px; color:var(--primary);">📍 View Location</a>
                                         {% endif %}
                                     </div>
                                     {% endfor %}
                                 {% else %}
-                                    <span style="color:#cbd5e1; font-style:italic; font-size: 13px;">No activity recorded today</span>
+                                    <span style="color:#cbd5e1; font-size: 12px;">No logs for today</span>
                                 {% endif %}
                             </div>
                         </td>
                         <td>
-                            {% if emp.is_registered %}
-                                <span class="status-badge">Face Registered</span>
+                            {% if emp.logs %}
+                                {% set latest = emp.logs[-1] %}
+                                {% if latest['Status'] == 'In Meeting' %}
+                                    <span class="pill meeting">🤝 In Meeting</span>
+                                {% elif latest['Logout Time'] %}
+                                    <span class="pill completed">Logged Out</span>
+                                {% else %}
+                                    <span class="pill active">Present</span>
+                                {% endif %}
                             {% else %}
-                                <span class="status-badge" style="background:#fee2e2; color:#b91c1c;">Pending Setup</span>
+                                <span class="pill" style="background:#f1f5f9; color:#94a3b8;">Offline</span>
                             {% endif %}
                         </td>
                         <td>
-                            <button class="action-btn" onclick="showEditModal('{{ emp.row_id }}', '{{ emp['First Name'] }}', '{{ emp['Last Name'] }}', '{{ emp['Department'] }}')" title="Edit">
-                                <span style="color:var(--primary)">✎</span>
-                            </button>
-                            <a href="/delete_employee/{{ emp.row_id }}" class="action-btn" onclick="return confirm('Delete this employee permanently?')" title="Delete">
-                                <span style="color:#ef4444">🗑</span>
-                            </a>
+                            <button class="action-btn" onclick="showEditModal('{{ emp.row_id }}', '{{ emp['First Name'] }}', '{{ emp['Last Name'] }}', '{{ emp['Department'] }}')">✎</button>
+                            <button class="action-btn" style="color:#ef4444" onclick="confirmDelete('{{ emp.row_id }}', '{{ emp['First Name'] }}')">🗑</button>
                         </td>
                     </tr>
                     {% endfor %}
@@ -144,55 +147,49 @@
 
     <div id="addModal" class="modal">
         <div class="modal-content">
-            <h2 style="margin-top:0;">Add New Employee</h2>
+            <h2 style="margin-top:0;">Add Employee</h2>
             <form action="/add_employee" method="POST">
                 <input type="text" name="first_name" placeholder="First Name" required>
                 <input type="text" name="last_name" placeholder="Last Name" required>
                 <input type="email" name="email" placeholder="Email Address" required>
                 <input type="text" name="department" placeholder="Department" required>
-                <button type="submit" class="btn-add" style="width:100%; margin-top:15px; border-radius:10px;">Send Invite & Save</button>
-                <button type="button" onclick="hideAddModal()" style="width:100%; background:none; border:none; color:#94a3b8; margin-top:15px; cursor:pointer; font-weight:600;">Cancel</button>
+                <button type="submit" class="btn-add" style="width:100%; border-radius:10px;">Save & Send Invite</button>
+                <button type="button" onclick="hideAddModal()" style="width:100%; background:none; border:none; color:#94a3b8; margin-top:10px; cursor:pointer;">Cancel</button>
             </form>
         </div>
     </div>
 
     <div id="editModal" class="modal">
         <div class="modal-content">
-            <h2 style="margin-top:0;">Edit Employee</h2>
+            <h2 style="margin-top:0;">Edit Profile</h2>
             <form id="editForm" method="POST">
                 <input type="text" name="first_name" id="edit_f" required>
                 <input type="text" name="last_name" id="edit_l" required>
                 <input type="text" name="department" id="edit_d" required>
-                <button type="submit" class="btn-add" style="width:100%; margin-top:15px; border-radius:10px; background:#34a853;">Update Profile</button>
-                <button type="button" onclick="hideEditModal()" style="width:100%; background:none; border:none; color:#94a3b8; margin-top:15px; cursor:pointer; font-weight:600;">Cancel</button>
+                <button type="submit" class="btn-add" style="width:100%; border-radius:10px;">Update</button>
+                <button type="button" onclick="hideEditModal()" style="width:100%; background:none; border:none; color:#94a3b8; margin-top:10px; cursor:pointer;">Cancel</button>
             </form>
         </div>
     </div>
 
     <script>
-        // --- SEARCH FILTER LOGIC ---
-        function filterEmployees() {
-            const input = document.getElementById('employeeSearch');
-            const filter = input.value.toLowerCase();
-            const table = document.getElementById('employeeTable');
-            const rows = table.getElementsByClassName('employee-row');
+        function confirmDelete(id, name) {
+            if (confirm(`STOP! Are you sure you want to delete ${name}?\n\nThis will PERMANENTLY delete their user account AND all historical attendance logs from the spreadsheet.`)) {
+                window.location.href = "/delete_employee/" + id;
+            }
+        }
 
-            for (let i = 0; i < rows.length; i++) {
-                const searchCell = rows[i].getElementsByClassName('search-cell')[0];
-                if (searchCell) {
-                    const textValue = searchCell.textContent || searchCell.innerText;
-                    if (textValue.toLowerCase().indexOf(filter) > -1) {
-                        rows[i].style.display = "";
-                    } else {
-                        rows[i].style.display = "none";
-                    }
-                }
+        function filterEmployees() {
+            const filter = document.getElementById('employeeSearch').value.toLowerCase();
+            const rows = document.getElementsByClassName('employee-row');
+            for (let row of rows) {
+                const text = row.querySelector('.search-cell').innerText.toLowerCase();
+                row.style.display = text.includes(filter) ? "" : "none";
             }
         }
 
         function showAddModal() { document.getElementById('addModal').style.display = 'block'; }
         function hideAddModal() { document.getElementById('addModal').style.display = 'none'; }
-
         function showEditModal(rowId, f, l, d) {
             document.getElementById('edit_f').value = f;
             document.getElementById('edit_l').value = l;
@@ -201,12 +198,6 @@
             document.getElementById('editModal').style.display = 'block';
         }
         function hideEditModal() { document.getElementById('editModal').style.display = 'none'; }
-
-        window.onclick = function(event) {
-            if (event.target.className === 'modal') {
-                hideAddModal(); hideEditModal();
-            }
-        }
     </script>
 </body>
 </html>
