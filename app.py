@@ -89,20 +89,19 @@ def index():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        # 1. Clean up inputs
+        # 1. Force email to lowercase for consistent searching
         email = request.form.get('email', '').strip().lower()
         password = request.form.get('password', '').strip()
         
         user_sheet, _ = get_sheets()
         
         try:
-            # 2. Find the user by email in Column C (in_column=3)
+            # 2. Find the user by email in Column C
             cell = user_sheet.find(email, in_column=3)
             user_data = user_sheet.row_values(cell.row)
             
             # 3. Check the password at Index 4 (Column E)
             if check_password_hash(user_data[4], password):
-                # SUCCESS: Setup the session
                 session.clear()
                 session.permanent = True
                 app.permanent_session_lifetime = timedelta(hours=2)
@@ -111,38 +110,68 @@ def login():
                     'user_row': cell.row, 
                     'first_name': user_data[0], 
                     'last_name': user_data[1], 
-                    'role': user_data[5].lower(), # Column F (Index 5)
-                    'verified': False,            # Default to false until face scan
+                    'role': user_data[5].lower(), 
+                    'verified': False,
                     'last_auth': time.time() 
                 })
                 
-                # --- REDIRECTION LOGIC ---
-
-                # A. If it's a new employee (Reset Flag "1" in Column H / Index 7)
-                if len(user_data) > 7 and user_data[7] == "1":
+                # A. Check for Temporary Password (Reset Flag "1" in Column H)
+                if len(user_data) >= 8 and user_data[7] == "1":
                     return redirect(url_for('reset_password'))
                 
-                # B. If it's an Admin
+                # B. If Admin
                 if user_data[5].lower() == 'admin': 
-                    session['verified'] = True # Admins skip face scan
+                    session['verified'] = True
                     return redirect(url_for('admin_dashboard'))
                 
-                # C. Check if face is registered (Column G / Index 6)
+                # C. Check Face Registration (Column G)
                 if len(user_data) < 7 or not user_data[6]:
-                    flash("Face not registered. Please check the registration link in your email.", "error")
+                    flash("Face not registered. Please check your invite email.", "error")
                     return redirect(url_for('login'))
                 
-                # D. Proceed to Face Verification for normal employees
                 return redirect(url_for('verify_face'))
             else:
-                # Password didn't match the hash
                 flash("Invalid password. Please try again.", "error")
         except Exception as e:
-            # Email not found or Sheet error
             print(f"Login Error: {e}")
             flash("User not found or connection error.", "error")
             
     return render_template('login.html')
+
+@app.route('/add_employee', methods=['POST'])
+def add_employee():
+    if session.get('role') != 'admin': return redirect(url_for('login'))
+    f = request.form.get('first_name')
+    l = request.form.get('last_name')
+    # Force email to lowercase when saving to match the login search
+    e = request.form.get('email', '').strip().lower()
+    d = request.form.get('department')
+    
+    temp_pass = ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(8))
+    user_sheet, _ = get_sheets()
+    
+    try:
+        # Save 8 columns to match your A-H structure
+        user_sheet.append_row([f, l, e, d, generate_password_hash(temp_pass), 'employee', '', '1'])
+        
+        # Find row for the link
+        user_row = user_sheet.find(e).row
+        reg_link = f"https://biometric-attendance-system-tsca.onrender.com/register_face/{user_row}"
+
+        email_html = f"""
+        <div style="background-color: #121212; color: #ffffff; padding: 40px; font-family: Arial; border-radius: 10px;">
+            <h1 style="color: #4c8bf5;">Hello {f},</h1>
+            <p>Your workspace account is ready.</p>
+            <p><b>Temporary Password:</b> {temp_pass}</p>
+            <p><b>Face Registration:</b> Required before first login.</p>
+            <a href="{reg_link}" style="background: #4c8bf5; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; display: inline-block; margin-top: 10px;">Register Face Now</a>
+        </div>
+        """
+        send_email_via_brevo(e, "Account Ready - Action Required", email_html)
+        flash(f"Employee {f} added and invite sent!", "success")
+    except Exception as err:
+        flash(f"Error adding employee: {err}", "error")
+    return redirect(url_for('admin_dashboard'))
 
 # --- FACE PROCESSING ---
 
