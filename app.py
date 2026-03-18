@@ -107,20 +107,28 @@ def login():
                     'verified': False,
                     'last_auth': time.time() 
                 })
+                # Check for Temporary Password Flag (H column / index 7)
                 if len(user_data) >= 8 and user_data[7] == "1":
-                    return redirect(url_for('reset_password'))
+                    return redirect(url_for('reset_password_page'))
+                
                 if user_data[5].lower() == 'admin': 
                     session['verified'] = True
                     return redirect(url_for('admin_dashboard'))
+                
                 if len(user_data) < 7 or not user_data[6]:
                     flash("Face not registered. Check your email.", "error")
                     return redirect(url_for('login'))
+                
                 return redirect(url_for('verify_face'))
             else:
                 flash("Invalid password.", "error")
         except Exception as e:
             flash("User not found or connection error.", "error")
     return render_template('login.html')
+
+@app.route('/reset-password')
+def reset_password_page(): 
+    return render_template('reset_password.html')
 
 # --- FACE PROCESSING ---
 
@@ -294,8 +302,8 @@ def update_password():
     if not row_id: return redirect(url_for('login'))
     new_pass = request.form.get('password')
     if not is_password_strong(new_pass):
-        flash("Weak password!", "error")
-        return redirect(url_for('reset_password'))
+        flash("Weak password! Need 8+ chars, Uppercase, Number, and Special Char.", "error")
+        return redirect(url_for('reset_password_page'))
     user_sheet, _ = get_sheets()
     user_sheet.update_cell(row_id, 5, generate_password_hash(new_pass))
     user_sheet.update_cell(row_id, 8, "0")
@@ -304,9 +312,6 @@ def update_password():
 
 @app.route('/forgot-password')
 def forgot_password(): return render_template('forgot_password.html')
-
-@app.route('/reset-password')
-def reset_password(): return render_template('reset_password.html')
 
 @app.route('/logout')
 def logout(): 
