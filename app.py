@@ -89,40 +89,59 @@ def index():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        email, password = request.form.get('email'), request.form.get('password')
+        # 1. Clean up inputs
+        email = request.form.get('email', '').strip().lower()
+        password = request.form.get('password', '').strip()
+        
         user_sheet, _ = get_sheets()
+        
         try:
-            cell = user_sheet.find(email.strip(), in_column=3)
+            # 2. Find the user by email in Column C (in_column=3)
+            cell = user_sheet.find(email, in_column=3)
             user_data = user_sheet.row_values(cell.row)
             
+            # 3. Check the password at Index 4 (Column E)
             if check_password_hash(user_data[4], password):
+                # SUCCESS: Setup the session
                 session.clear()
                 session.permanent = True
-                app.permanent_session_lifetime = timedelta(hours=2) # 2-hour Live Timer
+                app.permanent_session_lifetime = timedelta(hours=2)
                 
                 session.update({
                     'user_row': cell.row, 
                     'first_name': user_data[0], 
                     'last_name': user_data[1], 
-                    'role': user_data[5],
-                    'verified': False,
+                    'role': user_data[5].lower(), # Column F (Index 5)
+                    'verified': False,            # Default to false until face scan
                     'last_auth': time.time() 
                 })
                 
+                # --- REDIRECTION LOGIC ---
+
+                # A. If it's a new employee (Reset Flag "1" in Column H / Index 7)
                 if len(user_data) > 7 and user_data[7] == "1":
                     return redirect(url_for('reset_password'))
                 
+                # B. If it's an Admin
                 if user_data[5].lower() == 'admin': 
-                    session['verified'] = True
+                    session['verified'] = True # Admins skip face scan
                     return redirect(url_for('admin_dashboard'))
                 
+                # C. Check if face is registered (Column G / Index 6)
                 if len(user_data) < 7 or not user_data[6]:
-                    flash("Face not registered. Please check email.", "error")
+                    flash("Face not registered. Please check the registration link in your email.", "error")
                     return redirect(url_for('login'))
                 
+                # D. Proceed to Face Verification for normal employees
                 return redirect(url_for('verify_face'))
-        except:
-            flash("Invalid credentials.", "error")
+            else:
+                # Password didn't match the hash
+                flash("Invalid password. Please try again.", "error")
+        except Exception as e:
+            # Email not found or Sheet error
+            print(f"Login Error: {e}")
+            flash("User not found or connection error.", "error")
+            
     return render_template('login.html')
 
 # --- FACE PROCESSING ---
@@ -257,15 +276,42 @@ def check_session():
 @app.route('/add_employee', methods=['POST'])
 def add_employee():
     if session.get('role') != 'admin': return redirect(url_for('login'))
-    f, l, e, d = request.form.get('first_name'), request.form.get('last_name'), request.form.get('email'), request.form.get('department')
+    f = request.form.get('first_name')
+    l = request.form.get('last_name')
+    e = request.form.get('email').strip()
+    d = request.form.get('department')
+    
     temp_pass = ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(8))
     user_sheet, _ = get_sheets()
-    # Adding Status 'Active' in Column 8
-    user_sheet.append_row([f, l, e, d, generate_password_hash(temp_pass), 'employee', '', '1', 'Active']) 
-    reg_link = f"https://biometric-attendance-system-tsca.onrender.com/register_face/{user_sheet.find(e).row}"
-    html = f"<h3>Welcome!</h3><p>Temp Pass: {temp_pass}</p><a href='{reg_link}'>Register Face Now</a>"
-    send_email_via_brevo(e, "Face Registration Required", html)
-    flash("Employee added and email sent!", "success")
+    
+    try:
+        # Save to sheet
+        user_sheet.append_row([f, l, e, d, generate_password_hash(temp_pass), 'employee', '', '1'])
+        user_row = user_sheet.find(e).row
+        reg_link = f"https://biometric-attendance-system-tsca.onrender.com/register_face/{user_row}"
+
+        # DARK THEME EMAIL HTML (Matching your image)
+        email_html = f"""
+        <div style="background-color: #121212; color: #ffffff; padding: 40px; font-family: 'Inter', Arial, sans-serif; border-radius: 10px;">
+            <h1 style="color: #4c8bf5; font-size: 28px;">Hello {f},</h1>
+            <p style="font-size: 18px; color: #e0e0e0;">Your workspace account is ready. Please follow these steps:</p>
+            
+            <div style="margin: 25px 0;">
+                <p style="font-size: 18px;"><b>1. Temporary Password:</b> <span style="color: #ffffff; background: #333; padding: 5px 10px; border-radius: 5px;">{temp_pass}</span></p>
+                <p style="font-size: 18px;"><b>2. Face Registration:</b> You must register your face profile before logging in.</p>
+            </div>
+
+            <a href="{reg_link}" style="display: inline-block; background-color: #4c8bf5; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 18px; margin-top: 10px;">Register Face Now</a>
+            
+            <p style="margin-top: 30px; font-size: 14px; color: #999;">Note: You will be asked to change your password on first login.</p>
+        </div>
+        """
+        
+        send_email_via_brevo(e, "Account Ready - Action Required", email_html)
+        flash(f"Employee {f} added and invite sent!", "success")
+    except Exception as err:
+        flash(f"Error adding employee: {err}", "error")
+
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/delete_employee/<int:row_id>')
