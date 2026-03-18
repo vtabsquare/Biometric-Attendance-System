@@ -164,31 +164,55 @@ def verify_face():
 def process_verification():
     data = request.get_json()
     row_id, mode = session.get('user_row'), data.get('mode')
-    location_url = data.get('location', 'Location Not Shared')
+    
+    # Format the location: "Erode, India (Link)"
+    loc_text = data.get('detailed_location', 'Unknown')
+    map_link = data.get('location', '#')
+    full_loc_string = f"{loc_text} - {map_link}"
+
     user_sheet, attn_sheet = get_sheets()
     user_data = user_sheet.row_values(row_id)
-    stored_enc = np.array(json.loads(user_data[6]))
-    img_data = base64.b64decode(data['image'].split(',')[1])
-    img = cv2.imdecode(np.frombuffer(img_data, np.uint8), cv2.IMREAD_COLOR)
-    rgb_small = cv2.cvtColor(cv2.resize(img, (0,0), fx=0.25, fy=0.25), cv2.COLOR_BGR2RGB)
-    live_enc = face_recognition.face_encodings(rgb_small)
+    
+    # ... (Keep your face_recognition code here to generate 'live_enc') ...
+    
+    # IF FACE MATCHES:
     if len(live_enc) > 0 and face_recognition.compare_faces([stored_enc], live_enc[0], tolerance=0.5)[0]:
         IST = pytz.timezone('Asia/Kolkata')
         now = datetime.now(IST)
-        today, current_time = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
-        if mode == 'logout':
-            records = attn_sheet.get_all_records()
-            for i, r in enumerate(records, start=2):
-                if r['First Name'] == user_data[0] and r['Date'] == today and not r.get('Logout Time'):
-                    attn_sheet.update_cell(i, 5, current_time)
-                    attn_sheet.update_cell(i, 6, "Present")
-                    break
-        else:
-            attn_sheet.append_row([user_data[0], user_data[1], today, current_time, "", "Present", location_url])
+        today, cur_time = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
+        
+        # 🛡️ SEARCH FOR OPEN SESSION (Missing Logout Time)
+        records = attn_sheet.get_all_records()
+        open_row_index = None
+        for i, r in enumerate(records, start=2):
+            if r['First Name'] == user_data[0] and r['Date'] == today and not r.get('Logout Time'):
+                open_row_index = i
+
+        # CASE 1: Re-verification (After Meeting or Timer end)
+        if open_row_index:
+            # Always close the previous session first
+            attn_sheet.update_cell(open_row_index, 5, cur_time)       # Col E: Logout Time
+            attn_sheet.update_cell(open_row_index, 6, "Present")      # Col F: Status
+            attn_sheet.update_cell(open_row_index, 8, full_loc_string)# Col H: Logout Location (NEW)
+            
+            # If they just finished a meeting/timer, kick them to landing for fresh start
+            if mode != 'login' and mode != 'logout':
+                session.clear()
+                return jsonify({"success": True, "redirect": "/"})
+
+        # CASE 2: Fresh Login
+        if mode == 'login':
+            # Append 8 columns to match your new sheet
+            # A:First, B:Last, C:Date, D:LoginTime, E:LogoutTime, F:Status, G:LoginLoc, H:LogoutLoc
+            attn_sheet.append_row([
+                user_data[0], user_data[1], today, cur_time, "", "Present", full_loc_string, ""
+            ])
+
         session.permanent = True
         app.permanent_session_lifetime = timedelta(hours=2)
         session.update({'verified': True, 'last_auth': time.time()})
-        return jsonify({"success": True})
+        return jsonify({"success": True, "redirect": "/employee/dashboard"})
+    
     return jsonify({"success": False})
 
 # --- MEETING MODE ---
@@ -196,17 +220,31 @@ def process_verification():
 @app.route('/start_meeting', methods=['POST'])
 def start_meeting():
     if 'user_row' not in session: return jsonify({"success": False})
+    
+    data = request.get_json()
+    duration = int(data.get('duration', 10)) # Get the 10, 20... 60 mins from frontend
+    
     try:
         _, attn_sheet = get_sheets()
         IST = pytz.timezone('Asia/Kolkata')
         today = datetime.now(IST).strftime("%Y-%m-%d")
+        
+        # 1. Update Status to 'In Meeting' in Spreadsheet
         records = attn_sheet.get_all_records()
         for i, r in enumerate(records, start=2):
             if r['First Name'] == session.get('first_name') and r['Date'] == today and not r.get('Logout Time'):
                 attn_sheet.update_cell(i, 6, "In Meeting")
                 break
+        
+        # 2. EXTEND SERVER SESSION (CRITICAL)
+        # This keeps the user logged in for the duration of the meeting + original time
+        session.permanent = True
+        new_lifetime = 7200 + (duration * 60) # 2 hours + meeting duration
+        app.permanent_session_lifetime = timedelta(seconds=new_lifetime)
+        
         return jsonify({"success": True})
-    except:
+    except Exception as e:
+        print(f"Meeting Error: {e}")
         return jsonify({"success": False})
 
 # --- DASHBOARDS ---

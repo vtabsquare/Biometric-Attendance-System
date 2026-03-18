@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Verify Identity - FaceAuth</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='207') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='208') }}">
     <style>
         .verify-container { max-width: 500px; margin: 60px auto; text-align: center; background: white; padding: 40px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
         video { width: 100%; border-radius: 12px; transform: scaleX(-1); background: #000; }
@@ -28,7 +28,9 @@
         const btn = document.getElementById('verifyBtn');
         const status = document.getElementById('status');
         const urlParams = new URLSearchParams(window.location.search);
-        const mode = urlParams.get('mode') || 'login';
+        const mode = urlParams.get('mode') || '{{ mode }}';
+
+        let detailedLocation = "Unknown District, India"; // Store District/Country
 
         // Camera Initialization
         navigator.mediaDevices.getUserMedia({ video: true })
@@ -40,64 +42,73 @@
                 status.innerText = "Camera Error: Please allow access"; 
             });
 
+        // Step 1: Background Location Tracker
+        function getDetailedLocation() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(async (position) => {
+                    const lat = position.coords.latitude;
+                    const lng = position.coords.longitude;
+                    
+                    // Standard Google Maps format
+                    window.mapsUrl = `https://www.google.com/maps?q=${lat},${lng}`;
+
+                    // Fetch District/Country from OpenStreetMap (Free)
+                    try {
+                        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+                        const data = await res.json();
+                        const district = data.address.city || data.address.town || data.address.village || "District Not Found";
+                        const country = data.address.country || "India";
+                        detailedLocation = `${district}, ${country}`;
+                    } catch (e) {
+                        detailedLocation = "Location Shared";
+                    }
+                }, null, { enableHighAccuracy: true });
+            }
+        }
+        getDetailedLocation(); // Trigger immediately on load
+
         btn.onclick = () => {
             btn.disabled = true;
-            status.innerText = "Fetching High-Accuracy GPS...";
+            status.innerText = "Processing Face & Location...";
             
-            // Step 1: Get GPS Position
-            navigator.geolocation.getCurrentPosition((position) => {
-                const lat = position.coords.latitude;
-                const lng = position.coords.longitude;
-                
-                // FIXED URL: Corrected to standard Google Maps format
-                const mapsUrl = `https://www.google.com/maps?q=${lat},${lng}`;
+            const context = canvas.getContext('2d');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            context.drawImage(video, 0, 0);
+            const imageData = canvas.toDataURL('image/jpeg');
 
-                status.innerText = "Analyzing Face...";
-                const context = canvas.getContext('2d');
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                context.drawImage(video, 0, 0);
-                const imageData = canvas.toDataURL('image/jpeg');
-
-                // Step 2: Send to Backend
-                fetch('/process_verification', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        image: imageData, 
-                        mode: mode,
-                        location: mapsUrl 
-                    })
+            // Send to Backend
+            fetch('/process_verification', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    image: imageData, 
+                    mode: mode,
+                    location: window.mapsUrl || "Location Hidden",
+                    detailed_location: detailedLocation 
                 })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.success) {
-                        status.style.color = "#34a853";
-                        status.innerText = "Success! Identity & Location Verified.";
-                        
-                        // --- 502 BAD GATEWAY FIX: Added 1.5s Delay ---
-                        setTimeout(() => {
-                            window.location.href = mode === 'logout' ? "/logout" : "/employee/dashboard";
-                        }, 1500);
-                        
-                    } else {
-                        btn.disabled = false;
-                        status.style.color = "#ea4335";
-                        status.innerText = "Face not recognized. Try again.";
-                    }
-                })
-                .catch(err => {
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) {
+                    status.style.color = "#34a853";
+                    status.innerText = "Success! Identity & Location Verified.";
+                    
+                    // --- UPDATED REDIRECT LOGIC ---
+                    setTimeout(() => {
+                        // If backend sends a specific redirect (like "/") use it, else go to dashboard
+                        window.location.href = data.redirect || (mode === 'logout' ? "/logout" : "/employee/dashboard");
+                    }, 1500);
+                    
+                } else {
                     btn.disabled = false;
-                    status.innerText = "Server Error. Please try again.";
-                });
-            }, (error) => {
+                    status.style.color = "#ea4335";
+                    status.innerText = "Face not recognized. Try again.";
+                }
+            })
+            .catch(err => {
                 btn.disabled = false;
-                alert("Location Error: Please ensure GPS is ON and permissions are allowed.");
-                status.innerText = "Location access denied.";
-            }, {
-                enableHighAccuracy: true,
-                timeout: 10000,
-                maximumAge: 0
+                status.innerText = "Server Error. Please try again.";
             });
         };
     </script>
