@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Admin Dashboard - FaceAuth</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='235') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='236') }}">
     <style>
         :root { --primary: #1a73e8; --bg: #f8fafc; --sidebar: #ffffff; }
         body { display: flex; background: var(--bg); margin: 0; font-family: 'Inter', sans-serif; height: 100vh; overflow: hidden; }
@@ -28,12 +28,8 @@
         th { text-align: left; color: #94a3b8; font-size: 11px; text-transform: uppercase; padding: 15px; border-bottom: 1px solid #f1f5f9; }
         td { padding: 25px 15px; border-bottom: 1px solid #f8fafc; vertical-align: top; }
         
-        /* UPDATED LOG AREA FOR DUAL LOCATIONS */
         .log-scroll-area { max-height: 240px; overflow-y: auto; padding-right: 5px; }
         .log-entry { font-size: 12px; margin-bottom: 12px; color: #334155; padding: 12px; background: #fcfcfc; border-radius: 12px; border: 1px solid #f1f5f9; line-height: 1.6; }
-        .loc-tag { font-size: 10px; font-weight: 600; display: block; margin-top: 4px; border-radius: 4px; padding: 2px 6px; width: fit-content; }
-        .loc-in { background: #e8f0fe; color: #1a73e8; }
-        .loc-out { background: #fce8e6; color: #d93025; }
         
         .pill { padding: 6px 12px; border-radius: 8px; font-size: 11px; font-weight: 700; text-transform: uppercase; display: inline-block; }
         .active { background: #dcfce7; color: #166534; }
@@ -124,16 +120,34 @@
                             <div class="log-scroll-area">
                                 {% if emp.logs %}
                                     {% for log in emp.logs %}
-                                    <div class="log-entry">
-                                        <strong>In:</strong> {{ log['Login Time'] }} 
-                                        <span class="loc-tag loc-in">📍 {{ log['Login Location'] }}</span>
+                                    <div class="log-entry" style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 15px; border-radius: 12px; margin-bottom: 15px;">
                                         
+                                        <div style="margin-bottom: 10px;">
+                                            <strong style="color: #1e293b; display: block;">In: {{ log['Login Time'] }}</strong>
+                                            {% if log['Login Location'] and '|' in log['Login Location'] %}
+                                                {% set loc_parts = log['Login Location'].split('|') %}
+                                                <span style="font-size: 13px; color: #475569; display: block; margin-top: 4px;">📍 {{ loc_parts[0].strip() }}</span>
+                                                <a href="{{ loc_parts[1].strip() }}" target="_blank" style="font-size: 11px; color: #1a73e8; text-decoration: none; font-weight: 600;">View Exact Location →</a>
+                                            {% else %}
+                                                <span style="font-size: 11px; color: #94a3b8;">Location Shared: {{ log['Login Location'] }}</span>
+                                            {% endif %}
+                                        </div>
+
                                         {% if log['Logout Time'] %}
-                                            <hr style="border:0; border-top:1px solid #f1f5f9; margin:8px 0;">
-                                            <strong>Out:</strong> {{ log['Logout Time'] }}
-                                            <span class="loc-tag loc-out">📍 {{ log['Logout Location'] }}</span>
+                                        <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 10px 0;">
+                                        
+                                        <div>
+                                            <strong style="color: #1e293b; display: block;">Out: {{ log['Logout Time'] }}</strong>
+                                            {% if log['Logout Location'] and '|' in log['Logout Location'] %}
+                                                {% set out_parts = log['Logout Location'].split('|') %}
+                                                <span style="font-size: 13px; color: #475569; display: block; margin-top: 4px;">📍 {{ out_parts[0].strip() }}</span>
+                                                <a href="{{ out_parts[1].strip() }}" target="_blank" style="font-size: 11px; color: #ef4444; text-decoration: none; font-weight: 600;">View Exact Location →</a>
+                                            {% else %}
+                                                <span style="font-size: 11px; color: #94a3b8;">Location Shared: {{ log['Logout Location'] }}</span>
+                                            {% endif %}
+                                        </div>
                                         {% else %}
-                                            <br><span style="color:#10b981; font-weight:700; font-size:10px;">● Session Active</span>
+                                            <span style="color: #10b981; font-size: 11px; font-weight: 700;">● SESSION ACTIVE</span>
                                         {% endif %}
                                     </div>
                                     {% endfor %}
@@ -209,7 +223,6 @@
                 window.location.href = "/delete_employee/" + id;
             }
         }
-
         function filterEmployees() {
             const filter = document.getElementById('employeeSearch').value.toLowerCase();
             const rows = document.getElementsByClassName('employee-row');
@@ -218,10 +231,8 @@
                 row.style.display = text.includes(filter) ? "" : "none";
             }
         }
-
         function showAddModal() { document.getElementById('addModal').style.display = 'block'; }
         function hideAddModal() { document.getElementById('addModal').style.display = 'none'; }
-        
         function showEditModal(rowId, f, l, d) {
             document.getElementById('edit_f').value = f;
             document.getElementById('edit_l').value = l;

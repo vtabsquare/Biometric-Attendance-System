@@ -163,16 +163,17 @@ def process_verification():
     data = request.get_json()
     row_id, mode = session.get('user_row'), data.get('mode')
     
-    loc_text = data.get('detailed_location', 'Unknown Location')
+    # NEW FORMAT: "District, Country | GoogleMapsURL"
+    loc_text = data.get('detailed_location', 'Unknown')
     map_link = data.get('location', '#')
-    full_loc_string = f"{loc_text} - {map_link}"
+    full_loc_string = f"{loc_text} | {map_link}" # Using Pipe '|' for easy splitting
 
     try:
         user_sheet, attn_sheet = get_sheets()
         user_data = user_sheet.row_values(row_id)
         
-        # 🛡️ FACE RECOGNITION LOGIC
-        stored_enc = np.array(json.loads(user_data[6])) # Column G
+        # --- FACE RECOGNITION ---
+        stored_enc = np.array(json.loads(user_data[6]))
         img_data = base64.b64decode(data['image'].split(',')[1])
         img = cv2.imdecode(np.frombuffer(img_data, np.uint8), cv2.IMREAD_COLOR)
         rgb_small = cv2.cvtColor(cv2.resize(img, (0,0), fx=0.25, fy=0.25), cv2.COLOR_BGR2RGB)
@@ -183,35 +184,31 @@ def process_verification():
             now = datetime.now(IST)
             today, cur_time = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
             
-            # 🛡️ FIND OPEN SESSION
+            # Find the active session row
             records = attn_sheet.get_all_records()
-            open_row_index = None
-            for i, r in enumerate(records, start=2):
-                if r['First Name'] == user_data[0] and r['Date'] == today and not r.get('Logout Time'):
-                    open_row_index = i
+            open_row = next((i for i, r in enumerate(records, 2) if r['First Name'] == user_data[0] and r['Date'] == today and not r.get('Logout Time')), None)
 
-            # UPDATE LOGOUT DATA (Close existing session)
-            if open_row_index:
-                attn_sheet.update_cell(open_row_index, 5, cur_time)       # Col E: Logout Time
-                attn_sheet.update_cell(open_row_index, 6, "Present")      # Col F: Status
-                attn_sheet.update_cell(open_row_index, 8, full_loc_string)# Col H: Logout Location
+            # --- LOGOUT / END MEETING LOGIC ---
+            if open_row:
+                attn_sheet.update_cell(open_row, 5, cur_time)      # Col E: Logout Time
+                attn_sheet.update_cell(open_row, 6, "Present")     # Col F: Status
+                attn_sheet.update_cell(open_row, 8, full_loc_string)# Col H: Logout Location
                 
-                if mode != 'login' and mode != 'logout':
-                    session.clear()
+                if mode == 'logout' or mode != 'login':
+                    session.clear() 
                     return jsonify({"success": True, "redirect": "/"})
 
-            # FRESH LOGIN (New session)
+            # --- FRESH LOGIN LOGIC ---
             if mode == 'login':
-                attn_sheet.append_row([
-                    user_data[0], user_data[1], today, cur_time, "", "Present", full_loc_string, ""
-                ])
+                # Saving 8 columns to match your new Attendance sheet
+                attn_sheet.append_row([user_data[0], user_data[1], today, cur_time, "", "Present", full_loc_string, ""])
 
             session.update({'verified': True, 'last_auth': time.time()})
             return jsonify({"success": True, "redirect": "/employee/dashboard"})
-        
+            
         return jsonify({"success": False, "message": "Face not recognized"})
     except Exception as e:
-        print(f"Verification Error: {e}")
+        print(f"Error: {e}")
         return jsonify({"success": False, "message": "Server Error"})
 
 # --- MEETING MODE ---
