@@ -161,7 +161,9 @@ def verify_face():
 @app.route('/process_verification', methods=['POST'])
 def process_verification():
     data = request.get_json()
-    row_id, mode = session.get('user_row'), data.get('mode')
+    row_id = session.get('user_row')
+    mode = data.get('mode', 'login') # Default to login if not provided
+    
     loc_text = data.get('detailed_location', 'Unknown')
     map_link = data.get('location', '#')
     full_loc_string = f"{loc_text} | {map_link}" 
@@ -169,6 +171,8 @@ def process_verification():
     try:
         user_sheet, attn_sheet = get_sheets()
         user_data = user_sheet.row_values(row_id)
+        
+        # --- FACE RECOGNITION LOGIC ---
         stored_enc = np.array(json.loads(user_data[6]))
         img_data = base64.b64decode(data['image'].split(',')[1])
         img = cv2.imdecode(np.frombuffer(img_data, np.uint8), cv2.IMREAD_COLOR)
@@ -180,28 +184,40 @@ def process_verification():
             now = datetime.now(IST)
             today, cur_time = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
             
+            # Find any currently active session for this user today
             records = attn_sheet.get_all_records()
             open_row = next((i for i, r in enumerate(records, 2) if r['First Name'] == user_data[0] and r['Date'] == today and not r.get('Logout Time')), None)
 
+            # 1. ALWAYS CLOSE THE PREVIOUS SESSION if it exists
             if open_row:
-                attn_sheet.update_cell(open_row, 5, cur_time)
-                attn_sheet.update_cell(open_row, 6, "Present")
-                attn_sheet.update_cell(open_row, 8, full_loc_string)
+                attn_sheet.update_cell(open_row, 5, cur_time)      # Col E: Logout Time
+                attn_sheet.update_cell(open_row, 6, "Present")     # Col F: Status
+                attn_sheet.update_cell(open_row, 8, full_loc_string)# Col H: Logout Location
+
+            # 2. HANDLE REDIRECTS BASED ON MODE
+            if mode == 'logout':
+                # User clicked "Secure Logout" - Clear session and go to Landing Page
+                session.clear() 
+                return jsonify({"success": True, "redirect": "/"})
+
+            elif mode == 'login':
+                # User is either logging in fresh or re-verifying after a timeout
+                # Create a BRAND NEW row for the new 2-hour session
+                attn_sheet.append_row([
+                    user_data[0], user_data[1], today, 
+                    cur_time, "", "Present", 
+                    full_loc_string, ""
+                ])
                 
-                if mode == 'logout' or mode != 'login':
-                    session.clear() 
-                    return jsonify({"success": True, "redirect": "/"})
-
-            if mode == 'login':
-                attn_sheet.append_row([user_data[0], user_data[1], today, cur_time, "", "Present", full_loc_string, ""])
-
-            session.update({'verified': True, 'last_auth': time.time()})
-            return jsonify({"success": True, "redirect": "/employee/dashboard"})
+                # Update session to restart the 2-hour timer
+                session.update({'verified': True, 'last_auth': time.time()})
+                return jsonify({"success": True, "redirect": "/employee/dashboard"})
             
-        return jsonify({"success": False, "message": "Face not recognized"})
+        return jsonify({"success": False, "message": "Face not recognized. Please try again."})
+        
     except Exception as e:
-        print(f"Error: {e}")
-        return jsonify({"success": False, "message": "Server Error"})
+        print(f"Verification Error: {e}")
+        return jsonify({"success": False, "message": "Server encountered an error during verification."})
 
 # --- NEW: AUTO-LOGOUT RECORDING ROUTE ---
 @app.route('/auto_logout_record', methods=['POST'])

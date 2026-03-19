@@ -3,21 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <title>Verify Identity - FaceAuth</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='208') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='209') }}">
     <style>
-        .verify-container { max-width: 500px; margin: 60px auto; text-align: center; background: white; padding: 40px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-        video { width: 100%; border-radius: 12px; transform: scaleX(-1); background: #000; }
+        .verify-container { max-width: 500px; margin: 60px auto; text-align: center; background: white; padding: 40px; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); font-family: 'Inter', sans-serif; }
+        video { width: 100%; border-radius: 12px; transform: scaleX(-1); background: #000; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
         .btn-verify { background: #1a73e8; color: white; padding: 15px; border: none; border-radius: 8px; width: 100%; font-weight: 700; cursor: pointer; margin-top: 20px; font-size: 16px; transition: 0.3s; }
+        .btn-verify:hover { background: #1557b0; }
         .btn-verify:disabled { background: #ccc; cursor: not-allowed; }
-        #status { margin-top: 20px; font-weight: 600; color: #5f6368; }
+        #status { margin-top: 20px; font-weight: 600; color: #5f6368; min-height: 1.2em; }
     </style>
 </head>
 <body>
     <div class="verify-container">
         <h2 style="color: #1a73e8;">Biometric Verification</h2>
         <p>Hello <strong>{{ name }}</strong>, please scan your face to <strong>{{ mode }}</strong>.</p>
+        
         <video id="video" autoplay muted playsinline></video>
         <canvas id="canvas" style="display:none;"></canvas>
+        
         <button id="verifyBtn" class="btn-verify">Verify Identity & Location</button>
         <p id="status">Initializing Camera...</p>
     </div>
@@ -27,10 +30,13 @@
         const canvas = document.getElementById('canvas');
         const btn = document.getElementById('verifyBtn');
         const status = document.getElementById('status');
+        
+        // Priority: URL Param > Template Variable
         const urlParams = new URLSearchParams(window.location.search);
         const mode = urlParams.get('mode') || '{{ mode }}';
 
-        let detailedLocation = "Unknown District, India"; // Store District/Country
+        let detailedLocation = "Unknown District, India"; 
+        let mapsUrl = "Location Hidden";
 
         // Camera Initialization
         navigator.mediaDevices.getUserMedia({ video: true })
@@ -39,20 +45,19 @@
                 status.innerText = "Camera Ready. Press button to scan."; 
             })
             .catch(err => { 
-                status.innerText = "Camera Error: Please allow access"; 
+                status.innerText = "Camera Error: Please allow camera access in browser settings."; 
+                status.style.color = "#ea4335";
             });
 
-        // Step 1: Background Location Tracker
+        // Background Location Tracker
         function getDetailedLocation() {
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(async (position) => {
                     const lat = position.coords.latitude;
                     const lng = position.coords.longitude;
                     
-                    // Standard Google Maps format
-                    window.mapsUrl = `https://www.google.com/maps?q=${lat},${lng}`;
+                    mapsUrl = `https://www.google.com/maps?q=${lat},${lng}`;
 
-                    // Fetch District/Country from OpenStreetMap (Free)
                     try {
                         const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
                         const data = await res.json();
@@ -65,10 +70,11 @@
                 }, null, { enableHighAccuracy: true });
             }
         }
-        getDetailedLocation(); // Trigger immediately on load
+        getDetailedLocation(); 
 
         btn.onclick = () => {
             btn.disabled = true;
+            status.style.color = "#5f6368";
             status.innerText = "Processing Face & Location...";
             
             const context = canvas.getContext('2d');
@@ -84,7 +90,7 @@
                 body: JSON.stringify({ 
                     image: imageData, 
                     mode: mode,
-                    location: window.mapsUrl || "Location Hidden",
+                    location: mapsUrl,
                     detailed_location: detailedLocation 
                 })
             })
@@ -92,23 +98,24 @@
             .then(data => {
                 if (data.success) {
                     status.style.color = "#34a853";
-                    status.innerText = "Success! Identity & Location Verified.";
+                    status.innerText = "Verified! Redirecting...";
                     
-                    // --- UPDATED REDIRECT LOGIC ---
+                    // --- REFINED REDIRECT LOGIC ---
                     setTimeout(() => {
-                        // If backend sends a specific redirect (like "/") use it, else go to dashboard
-                        window.location.href = data.redirect || (mode === 'logout' ? "/logout" : "/employee/dashboard");
-                    }, 1500);
+                        // Use the exact redirect path provided by app.py
+                        window.location.href = data.redirect; 
+                    }, 1200);
                     
                 } else {
                     btn.disabled = false;
                     status.style.color = "#ea4335";
-                    status.innerText = "Face not recognized. Try again.";
+                    status.innerText = data.message || "Face not recognized. Please try again.";
                 }
             })
             .catch(err => {
                 btn.disabled = false;
-                status.innerText = "Server Error. Please try again.";
+                status.style.color = "#ea4335";
+                status.innerText = "Server Error. Please check connection.";
             });
         };
     </script>
