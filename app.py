@@ -97,7 +97,7 @@ def login():
             if check_password_hash(user_data[4], password):
                 session.clear()
                 session.permanent = True
-                app.permanent_session_lifetime = timedelta(minutes=2)
+                app.permanent_session_lifetime = timedelta(minutes=2) # Test value: Change back to hours=2 for production
                 session.update({
                     'user_row': cell.row, 
                     'first_name': user_data[0], 
@@ -162,7 +162,7 @@ def verify_face():
 def process_verification():
     data = request.get_json()
     row_id = session.get('user_row')
-    mode = data.get('mode', 'login') # Default to login if not provided
+    mode = data.get('mode', 'login')
     
     loc_text = data.get('detailed_location', 'Unknown')
     map_link = data.get('location', '#')
@@ -171,8 +171,6 @@ def process_verification():
     try:
         user_sheet, attn_sheet = get_sheets()
         user_data = user_sheet.row_values(row_id)
-        
-        # --- FACE RECOGNITION LOGIC ---
         stored_enc = np.array(json.loads(user_data[6]))
         img_data = base64.b64decode(data['image'].split(',')[1])
         img = cv2.imdecode(np.frombuffer(img_data, np.uint8), cv2.IMREAD_COLOR)
@@ -184,42 +182,30 @@ def process_verification():
             now = datetime.now(IST)
             today, cur_time = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
             
-            # Find any currently active session for this user today
             records = attn_sheet.get_all_records()
             open_row = next((i for i, r in enumerate(records, 2) if r['First Name'] == user_data[0] and r['Date'] == today and not r.get('Logout Time')), None)
 
-            # 1. ALWAYS CLOSE THE PREVIOUS SESSION if it exists
+            # FIX: ALWAYS CLOSE PREVIOUS SESSION AND RECORD ACCURATE LOCATION
             if open_row:
                 attn_sheet.update_cell(open_row, 5, cur_time)      # Col E: Logout Time
                 attn_sheet.update_cell(open_row, 6, "Present")     # Col F: Status
                 attn_sheet.update_cell(open_row, 8, full_loc_string)# Col H: Logout Location
 
-            # 2. HANDLE REDIRECTS BASED ON MODE
             if mode == 'logout':
-                # User clicked "Secure Logout" - Clear session and go to Landing Page
                 session.clear() 
                 return jsonify({"success": True, "redirect": "/"})
 
             elif mode == 'login':
-                # User is either logging in fresh or re-verifying after a timeout
-                # Create a BRAND NEW row for the new 2-hour session
-                attn_sheet.append_row([
-                    user_data[0], user_data[1], today, 
-                    cur_time, "", "Present", 
-                    full_loc_string, ""
-                ])
-                
-                # Update session to restart the 2-hour timer
+                attn_sheet.append_row([user_data[0], user_data[1], today, cur_time, "", "Present", full_loc_string, ""])
                 session.update({'verified': True, 'last_auth': time.time()})
                 return jsonify({"success": True, "redirect": "/employee/dashboard"})
             
-        return jsonify({"success": False, "message": "Face not recognized. Please try again."})
+        return jsonify({"success": False, "message": "Face not recognized."})
         
     except Exception as e:
         print(f"Verification Error: {e}")
-        return jsonify({"success": False, "message": "Server encountered an error during verification."})
+        return jsonify({"success": False, "message": "Server error during verification."})
 
-# --- NEW: AUTO-LOGOUT RECORDING ROUTE ---
 @app.route('/auto_logout_record', methods=['POST'])
 def auto_logout_record():
     if 'user_row' not in session: return jsonify({"success": False})
@@ -238,7 +224,6 @@ def auto_logout_record():
     except:
         return jsonify({"success": False})
 
-# --- UPDATED: MEETING MODE (BETWEEN TO BETWEEN) ---
 @app.route('/start_meeting', methods=['POST'])
 def start_meeting():
     if 'user_row' not in session: return jsonify({"success": False})
@@ -252,7 +237,6 @@ def start_meeting():
         today, start_time = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
         end_time = (now + timedelta(minutes=duration)).strftime("%H:%M:%S")
 
-        # 1. Close current work row if open
         records = attn_sheet.get_all_records()
         for i, r in enumerate(records, start=2):
             if r['First Name'] == user_data[0] and r['Date'] == today and not r.get('Logout Time'):
@@ -260,10 +244,9 @@ def start_meeting():
                 attn_sheet.update_cell(i, 6, "Transition to Meeting")
                 break
         
-        # 2. Add New Meeting Row (Between to Between)
+        # New Meeting Row
         attn_sheet.append_row([user_data[0], user_data[1], today, start_time, end_time, "In Meeting", "Meeting Popup", "Meeting Popup"])
         
-        # 3. Update Session for the Dashboard
         session.permanent = True
         app.permanent_session_lifetime = timedelta(seconds=(duration * 60))
         session['last_auth'] = time.time()
@@ -312,8 +295,24 @@ def add_employee():
         user_sheet.append_row([f, l, e, d, generate_password_hash(temp_pass), 'employee', '', '1'])
         user_row = user_sheet.find(e).row
         reg_link = f"https://biometric-attendance-system-tsca.onrender.com/register_face/{user_row}"
-        email_html = f"<h1>Hello {f},</h1><p>Password: {temp_pass}</p><a href='{reg_link}'>Register Face</a>"
-        send_email_via_brevo(e, "Account Ready", email_html)
+        
+        # PROFESSIONAL EMAIL TEMPLATE (Matching Image 5)
+        email_html = f"""
+        <div style="background-color: #121212; color: #ffffff; padding: 40px; font-family: sans-serif; border-radius: 10px;">
+            <h1 style="color: #4c8bf5; font-size: 28px;">Hello {f},</h1>
+            <p style="font-size: 18px; line-height: 1.6;">Your workspace account is ready. Please follow these steps:</p>
+            
+            <div style="background-color: #1a1a1a; padding: 25px; border-radius: 12px; margin: 25px 0; border: 1px solid #333;">
+                <p style="margin: 0 0 10px 0;"><b>1. Temporary Password:</b> <code style="background-color: #333; padding: 4px 8px; border-radius: 6px; color: #4c8bf5;">{temp_pass}</code></p>
+                <p style="margin: 0;"><b>2. Face Registration:</b> You must register your face profile before logging in.</p>
+            </div>
+            
+            <a href="{reg_link}" style="display: inline-block; background-color: #4c8bf5; color: white; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">Register Face Now</a>
+            
+            <p style="font-size: 13px; color: #888888; margin-top: 30px; border-top: 1px solid #333; padding-top: 20px;">Note: You will be asked to change your password on first login for security.</p>
+        </div>
+        """
+        send_email_via_brevo(e, "Account Ready - Action Required", email_html)
         flash(f"Employee {f} added!", "success")
     except Exception as err:
         flash(f"Error: {err}", "error")
