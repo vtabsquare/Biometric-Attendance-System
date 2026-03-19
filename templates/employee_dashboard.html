@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Employee Dashboard - FaceAuth</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='235') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='236') }}">
     <style>
         :root { --primary: #1a73e8; --bg: #f8fafc; --sidebar: #ffffff; }
         body { display: flex; background: var(--bg); margin: 0; font-family: 'Inter', sans-serif; min-height: 100vh; }
@@ -15,41 +15,16 @@
         .main-content { margin-left: 270px; padding: 40px; width: calc(100% - 270px); }
         .timer-display { background: #eff6ff; color: #1a73e8; padding: 10px 25px; border-radius: 50px; font-weight: 700; font-size: 14px; border: 1px solid #dbeafe; min-width: 160px; text-align: center; }
         
-        .meeting-bar {
-            background: white; padding: 20px; border-radius: 15px; border: 1px solid #e2e8f0;
-            display: flex; align-items: center; gap: 15px; margin-bottom: 25px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        }
-
+        /* SECURITY OVERLAY STYLES */
         #warningOverlay {
             display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(15, 23, 42, 0.9); z-index: 9999; backdrop-filter: blur(8px);
             align-items: center; justify-content: center;
         }
         .warning-card {
-            background: white; padding: 40px; border-radius: 24px; text-align: center;
-            max-width: 450px; width: 90%; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            background: white; padding: 35px; border-radius: 24px; text-align: center;
+            max-width: 420px; width: 90%; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
         }
-        .flashing-light {
-            width: 20px; height: 20px; background: #ef4444; border-radius: 50%;
-            margin: 0 auto 20px; animation: blink 0.8s infinite;
-            box-shadow: 0 0 15px #ef4444;
-        }
-        @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
-        
-        .btn-verify-now {
-            background: #1a73e8; color: white; padding: 15px 30px; border-radius: 12px;
-            border: none; font-weight: 800; cursor: pointer; font-size: 16px; margin-top: 20px;
-            width: 100%; transition: 0.3s;
-        }
-        .btn-verify-now:hover { background: #1557b0; transform: scale(1.02); }
-
-        .btn-dismiss {
-            background: none; border: 1px solid #e2e8f0; padding: 12px; border-radius: 12px;
-            width: 100%; margin-top: 10px; font-weight: 600; color: #64748b; cursor: pointer;
-            transition: 0.2s;
-        }
-        .btn-dismiss:hover { background: #f8fafc; color: #1e293b; }
 
         .activity-card { background: white; border-radius: 24px; padding: 40px; border: 1px solid #edf2f7; box-shadow: 0 4px 20px rgba(0,0,0,0.02); }
         table { width: 100%; border-collapse: collapse; margin-top: 25px; }
@@ -64,14 +39,31 @@
 
     <div id="warningOverlay">
         <div class="warning-card">
-            <div class="flashing-light"></div>
-            <h2 style="color: #1e293b; margin-bottom: 10px;">Security Re-Verification</h2>
-            <p id="warningText" style="color: #64748b; line-height: 1.6;"></p>
-            
-            <button class="btn-verify-now" onclick="window.location.href='/verify-face'">Verify Face Now</button>
-            <button id="dismissBtn" class="btn-dismiss" onclick="dismissWarning()">I'll do it later</button>
-            
-            <p style="margin-top: 20px; font-size: 12px; color: #94a3b8;">Refusing to verify after 3 warnings will lead to automatic redirection.</p>
+            <h3 style="margin-top:0; color:#1e293b; font-size: 20px;">Session Alert!</h3>
+            <h1 id="popupTimer" style="color: #d93025; font-size: 64px; margin: 10px 0; font-weight: 800;">00:00</h1>
+            <p style="color: #64748b; font-size: 14px; margin-bottom: 20px;">Your session has been recorded as <b>Logged Out</b>. Choose an option to resume.</p>
+
+            <div style="text-align:left; margin-bottom:15px; background: #f8fafc; padding: 15px; border-radius: 15px; border: 1px solid #e2e8f0;">
+                <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+                    <input type="radio" id="optMeeting" checked style="transform: scale(1.2);">
+                    <label for="optMeeting" style="font-weight:700; color: #334155;">🤝 I am in a Meeting</label>
+                </div>
+                <select id="popupDuration" style="width:100%; padding:10px; border-radius:8px; border:1px solid #cbd5e1; font-weight:600; color:#1a73e8; outline:none;">
+                    <option value="600">Postpone 10 Mins</option>
+                    <option value="1800">Postpone 30 Mins</option>
+                    <option value="3600">Postpone 1 Hour</option>
+                </select>
+                <button onclick="submitMeetingFromPopup()" style="width:100%; margin-top:12px; background:#1a73e8; color:white; border:none; padding:12px; border-radius:8px; font-weight:bold; cursor:pointer;">Extend as Meeting</button>
+            </div>
+
+            <div style="margin: 15px 0; color: #cbd5e1; font-weight: 600;">OR</div>
+
+            <div style="text-align:left; background: #ffffff; padding: 15px; border-radius: 15px; border: 1px solid #e2e8f0;">
+                <p style="margin:0 0 10px 0; font-weight:700; color:#334155;">👤 Not in a meeting?</p>
+                <button onclick="window.location.href='/verify-face?mode=login'" style="width:100%; background:#10b981; color:white; border:none; padding:12px; border-radius:8px; font-weight:bold; cursor:pointer;">Verify Face & Login Again</button>
+            </div>
+
+            <button onclick="window.location.href='/logout'" style="background:none; border:none; color:#94a3b8; margin-top:20px; cursor:pointer; font-weight:600; font-size:13px;">Exit Application</button>
         </div>
     </div>
 
@@ -85,30 +77,9 @@
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:40px;">
             <div>
                 <h1>Welcome, {{ name }}!</h1>
-                <p style="color:#64748b">Your biometric session is active. Re-verify every 2 hours.</p>
+                <p style="color:#64748b">Your biometric session is monitored. Re-verification required every 2 hours.</p>
             </div>
             <div class="timer-display">🕒 <span id="timer">Calculating...</span></div>
-        </div>
-
-        <div class="meeting-bar">
-            <div id="startMeetingUI" style="display: flex; align-items: center; gap: 10px;">
-                <span style="font-weight: 700; color: #475569;">🤝 Meeting</span>
-                <select id="meetingDuration" style="padding: 8px; border-radius: 8px; border: 1px solid #cbd5e1; font-weight: 600; color: #1a73e8;">
-                    <option value="600">Add 10 Mins</option>
-                    <option value="1200">Add 20 Mins</option>
-                    <option value="1800">Add 30 Mins</option>
-                    <option value="2400">Add 40 Mins</option>
-                    <option value="3000">Add 50 Mins</option>
-                    <option value="3600">Add 60 Mins</option>
-                </select>
-                <button onclick="meetingAction('start')" style="background: #1a73e8; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 700; cursor: pointer;">Start Meeting Mode</button>
-            </div>
-
-            <div id="endMeetingUI" style="display: none; align-items: center; gap: 15px;">
-                <span style="color: #ef4444; font-weight: 800; animation: blink 1.5s infinite;">● STATUS: IN A MEETING</span>
-                <button onclick="meetingAction('end')" style="background: #ef4444; color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 700; cursor: pointer;">Meeting Ended (Verify Face)</button>
-            </div>
-            <p style="margin-left: auto; font-size: 12px; color: #94a3b8;">Extends timer & updates Admin Dashboard.</p>
         </div>
 
         <div class="activity-card">
@@ -142,34 +113,15 @@
 
     <script>
         const loginTime = {{ session.get('last_auth', 0) }}; 
-        const baseTime = 7200; 
+        const baseTime = 120; 
         let extraTime = 0; 
-        
-        let warningCount = 0;
         let isWarningActive = false;
+        let originalTitle = document.title;
+        let flashInterval = null;
 
-        async function meetingAction(type) {
-            if (type === 'start') {
-                const snoozeSeconds = parseInt(document.getElementById('meetingDuration').value);
-                const snoozeMinutes = snoozeSeconds / 60;
-                
-                // Sending the specific duration (10-60) to the backend
-                const res = await fetch('/start_meeting', { 
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ duration: snoozeMinutes })
-                });
-
-                if (res.ok) {
-                    extraTime += snoozeSeconds; 
-                    document.getElementById('startMeetingUI').style.display = 'none';
-                    document.getElementById('endMeetingUI').style.display = 'flex';
-                    dismissWarning();
-                    alert(`Meeting Mode Active. Status updated. Timer extended by ${snoozeMinutes} mins.`);
-                }
-            } else {
-                window.location.href = "/verify-face";
-            }
+        // 1. Request Notification Permission
+        if (Notification.permission !== "granted") {
+            Notification.requestPermission();
         }
 
         function updatePersistentTimer() {
@@ -180,8 +132,11 @@
 
             if (secondsRemaining <= 0) {
                 display.textContent = "Session Expired";
+                document.getElementById('popupTimer').textContent = "00:00";
+                
                 if (!isWarningActive) {
-                    showCustomWarning();
+                    isWarningActive = true;
+                    triggerSecurityAlert();
                 }
                 return;
             }
@@ -191,40 +146,48 @@
             display.textContent = `Next Scan: ${minutes < 10 ? "0"+minutes : minutes}:${seconds < 10 ? "0"+seconds : seconds}`;
         }
 
-        function showCustomWarning() {
-            isWarningActive = true;
-            warningCount++;
+        async function triggerSecurityAlert() {
+            // A. Tell Python to record auto-logout in Sheet
+            await fetch('/auto_logout_record', { method: 'POST' });
 
-            const overlay = document.getElementById('warningOverlay');
-            const text = document.getElementById('warningText');
-            const dismissBtn = document.getElementById('dismissBtn');
-            
-            overlay.style.display = 'flex';
+            // B. Show Overlay
+            document.getElementById('warningOverlay').style.display = 'flex';
 
-            if (warningCount === 1) {
-                text.innerHTML = "<strong>Warning 1/3:</strong> Session ended. If you are in a meeting, please use 'Meeting' mode on the dashboard.";
-            } else if (warningCount === 2) {
-                text.innerHTML = "<strong>Warning 2/3:</strong> This is your second reminder. Please extend via Meeting Mode or verify your face.";
-            } else if (warningCount >= 3) {
-                dismissBtn.style.display = "none";
-                text.innerHTML = "<strong>Final Warning 3/3:</strong> Multiple reminders ignored. Redirecting to face verification now...";
-                
-                setTimeout(() => {
-                    window.location.href = "/verify-face";
-                }, 3000);
-                return;
+            // C. Tab Flashing
+            if (!flashInterval) {
+                flashInterval = setInterval(() => {
+                    document.title = (document.title === originalTitle) ? "⚠️ ACTION REQUIRED" : originalTitle;
+                }, 1000);
             }
 
-            setTimeout(() => {
-                if (isWarningActive && window.location.pathname.includes('dashboard')) {
-                    showCustomWarning();
-                }
-            }, 60000);
+            // D. OS Notification
+            if (Notification.permission === "granted") {
+                const n = new Notification("FaceAuth: Session Alert", {
+                    body: "Session expired! Please extend via Meeting or Re-verify face.",
+                    requireInteraction: true 
+                });
+                n.onclick = () => { window.focus(); clearInterval(flashInterval); document.title = originalTitle; };
+            }
         }
 
-        function dismissWarning() {
-            document.getElementById('warningOverlay').style.display = 'none';
-            isWarningActive = false;
+        async function submitMeetingFromPopup() {
+            const snoozeSeconds = parseInt(document.getElementById('popupDuration').value);
+            const snoozeMinutes = snoozeSeconds / 60;
+            
+            const res = await fetch('/start_meeting', { 
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ duration: snoozeMinutes })
+            });
+
+            if (res.ok) {
+                extraTime += snoozeSeconds; 
+                document.getElementById('warningOverlay').style.display = 'none';
+                isWarningActive = false;
+                clearInterval(flashInterval);
+                document.title = originalTitle;
+                alert(`Meeting Logged. Session extended by ${snoozeMinutes} mins.`);
+            }
         }
 
         setInterval(updatePersistentTimer, 1000);

@@ -159,8 +159,11 @@
                         <td>
                             {% if emp.logs %}
                                 {% set latest = emp.logs[-1] %}
+                                {# UPDATED STATUS LOGIC TO HANDLE MEETINGS CORRECTLY #}
                                 {% if latest['Status'] == 'In Meeting' %}
                                     <span class="pill meeting">🤝 In Meeting</span>
+                                {% elif latest['Status'] == 'Transition to Meeting' %}
+                                    <span class="pill meeting" style="animation: none;">⌛ Switching...</span>
                                 {% elif latest['Logout Time'] %}
                                     <span class="pill completed">Logged Out</span>
                                 {% else %}
