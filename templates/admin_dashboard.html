@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Admin Dashboard - FaceAuth</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='236') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='237') }}">
     <style>
         :root { --primary: #1a73e8; --bg: #f8fafc; --sidebar: #ffffff; }
         body { display: flex; background: var(--bg); margin: 0; font-family: 'Inter', sans-serif; height: 100vh; overflow: hidden; }
@@ -48,20 +48,6 @@
         
         .modal { display: none; position: fixed; z-index: 2000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); }
         .modal-content { background: white; margin: 5% auto; padding: 40px; width: 420px; border-radius: 24px; box-shadow: 0 20px 50px rgba(0,0,0,0.2); }
-        
-        .modal-content input, .modal-content select { 
-            width: 100%; 
-            padding: 14px; 
-            margin-bottom: 20px; 
-            border: 1px solid #e2e8f0; 
-            border-radius: 12px; 
-            box-sizing: border-box; 
-            font-size: 14px; 
-            background: #f8fafc;
-            outline: none;
-            transition: 0.2s;
-        }
-        .modal-content input:focus, .modal-content select:focus { border-color: var(--primary); background: #fff; }
     </style>
 </head>
 <body>
@@ -124,7 +110,10 @@
                                         
                                         <div style="margin-bottom: 10px;">
                                             <strong style="color: #1e293b; display: block;">In: {{ log['Login Time'] }}</strong>
-                                            {% if log['Login Location'] and '|' in log['Login Location'] %}
+                                            
+                                            {% if log['Login Location'] == 'Meeting Popup' %}
+                                                <span style="font-size: 13px; color: #d97706; font-weight: 800; display: block; margin-top: 5px;">🤝 MEETING</span>
+                                            {% elif log['Login Location'] and '|' in log['Login Location'] %}
                                                 {% set loc_parts = log['Login Location'].split('|') %}
                                                 <span style="font-size: 13px; color: #475569; display: block; margin-top: 4px;">📍 {{ loc_parts[0].strip() }}</span>
                                                 <a href="{{ loc_parts[1].strip() }}" target="_blank" style="font-size: 11px; color: #1a73e8; text-decoration: none; font-weight: 600;">View Exact Location →</a>
@@ -135,10 +124,12 @@
 
                                         {% if log['Logout Time'] %}
                                         <hr style="border: 0; border-top: 1px solid #e2e8f0; margin: 10px 0;">
-                                        
                                         <div>
                                             <strong style="color: #1e293b; display: block;">Out: {{ log['Logout Time'] }}</strong>
-                                            {% if log['Logout Location'] and '|' in log['Logout Location'] %}
+                                            
+                                            {% if log['Logout Location'] == 'Meeting Popup' %}
+                                                <span style="font-size: 13px; color: #d97706; font-weight: 800; display: block; margin-top: 5px;">🤝 MEETING</span>
+                                            {% elif log['Logout Location'] and '|' in log['Logout Location'] %}
                                                 {% set out_parts = log['Logout Location'].split('|') %}
                                                 <span style="font-size: 13px; color: #475569; display: block; margin-top: 4px;">📍 {{ out_parts[0].strip() }}</span>
                                                 <a href="{{ out_parts[1].strip() }}" target="_blank" style="font-size: 11px; color: #ef4444; text-decoration: none; font-weight: 600;">View Exact Location →</a>
@@ -159,7 +150,6 @@
                         <td>
                             {% if emp.logs %}
                                 {% set latest = emp.logs[-1] %}
-                                {# UPDATED STATUS LOGIC TO HANDLE MEETINGS CORRECTLY #}
                                 {% if latest['Status'] == 'In Meeting' %}
                                     <span class="pill meeting">🤝 In Meeting</span>
                                 {% elif latest['Status'] == 'Transition to Meeting' %}
