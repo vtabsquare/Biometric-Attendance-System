@@ -97,7 +97,7 @@ def login():
             if check_password_hash(user_data[4], password):
                 session.clear()
                 session.permanent = True
-                app.permanent_session_lifetime = timedelta(minutes=2) # Test value: Change back to hours=2 for production
+                app.permanent_session_lifetime = timedelta(minutes=2) 
                 session.update({
                     'user_row': cell.row, 
                     'first_name': user_data[0], 
@@ -163,7 +163,6 @@ def process_verification():
     data = request.get_json()
     row_id = session.get('user_row')
     mode = data.get('mode', 'login')
-    
     loc_text = data.get('detailed_location', 'Unknown')
     map_link = data.get('location', '#')
     full_loc_string = f"{loc_text} | {map_link}" 
@@ -185,11 +184,10 @@ def process_verification():
             records = attn_sheet.get_all_records()
             open_row = next((i for i, r in enumerate(records, 2) if r['First Name'] == user_data[0] and r['Date'] == today and not r.get('Logout Time')), None)
 
-            # FIX: ALWAYS CLOSE PREVIOUS SESSION AND RECORD ACCURATE LOCATION
             if open_row:
-                attn_sheet.update_cell(open_row, 5, cur_time)      # Col E: Logout Time
-                attn_sheet.update_cell(open_row, 6, "Present")     # Col F: Status
-                attn_sheet.update_cell(open_row, 8, full_loc_string)# Col H: Logout Location
+                attn_sheet.update_cell(open_row, 5, cur_time)
+                attn_sheet.update_cell(open_row, 6, "Present")
+                attn_sheet.update_cell(open_row, 8, full_loc_string)
 
             if mode == 'logout':
                 session.clear() 
@@ -201,10 +199,27 @@ def process_verification():
                 return jsonify({"success": True, "redirect": "/employee/dashboard"})
             
         return jsonify({"success": False, "message": "Face not recognized."})
-        
     except Exception as e:
-        print(f"Verification Error: {e}")
-        return jsonify({"success": False, "message": "Server error during verification."})
+        return jsonify({"success": False, "message": "Server error."})
+
+# --- UPDATED: SECURE LOGOUT PREPARATION ---
+@app.route('/prepare_logout', methods=['POST'])
+def prepare_logout():
+    if 'user_row' not in session: return jsonify({"success": False})
+    try:
+        _, attn_sheet = get_sheets()
+        IST = pytz.timezone('Asia/Kolkata')
+        now = datetime.now(IST)
+        today, cur_time = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
+        records = attn_sheet.get_all_records()
+        # Find and accurately end the 'In Meeting' row if user is leaving early
+        for i, r in enumerate(records, start=2):
+            if r['First Name'] == session.get('first_name') and r['Date'] == today and r['Status'] == 'In Meeting' and not r.get('Logout Time'):
+                attn_sheet.update_cell(i, 5, cur_time) 
+                break
+        return jsonify({"success": True})
+    except:
+        return jsonify({"success": False})
 
 @app.route('/auto_logout_record', methods=['POST'])
 def auto_logout_record():
@@ -244,7 +259,6 @@ def start_meeting():
                 attn_sheet.update_cell(i, 6, "Transition to Meeting")
                 break
         
-        # New Meeting Row
         attn_sheet.append_row([user_data[0], user_data[1], today, start_time, end_time, "In Meeting", "Meeting Popup", "Meeting Popup"])
         
         session.permanent = True
@@ -296,19 +310,15 @@ def add_employee():
         user_row = user_sheet.find(e).row
         reg_link = f"https://biometric-attendance-system-tsca.onrender.com/register_face/{user_row}"
         
-        # PROFESSIONAL EMAIL TEMPLATE (Matching Image 5)
         email_html = f"""
         <div style="background-color: #121212; color: #ffffff; padding: 40px; font-family: sans-serif; border-radius: 10px;">
             <h1 style="color: #4c8bf5; font-size: 28px;">Hello {f},</h1>
             <p style="font-size: 18px; line-height: 1.6;">Your workspace account is ready. Please follow these steps:</p>
-            
             <div style="background-color: #1a1a1a; padding: 25px; border-radius: 12px; margin: 25px 0; border: 1px solid #333;">
                 <p style="margin: 0 0 10px 0;"><b>1. Temporary Password:</b> <code style="background-color: #333; padding: 4px 8px; border-radius: 6px; color: #4c8bf5;">{temp_pass}</code></p>
                 <p style="margin: 0;"><b>2. Face Registration:</b> You must register your face profile before logging in.</p>
             </div>
-            
             <a href="{reg_link}" style="display: inline-block; background-color: #4c8bf5; color: white; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">Register Face Now</a>
-            
             <p style="font-size: 13px; color: #888888; margin-top: 30px; border-top: 1px solid #333; padding-top: 20px;">Note: You will be asked to change your password on first login for security.</p>
         </div>
         """
@@ -325,10 +335,15 @@ def delete_employee(row_id):
     try:
         employee_data = user_sheet.row_values(row_id)
         first_name = employee_data[0]
+        # Wipe Attendance logs from bottom up
+        all_logs = attn_sheet.get_all_values()
+        for i in range(len(all_logs), 1, -1):
+            if all_logs[i-1][0] == first_name:
+                attn_sheet.delete_rows(i)
         user_sheet.delete_rows(row_id)
-        flash(f"Deleted {first_name}.", "success")
+        flash(f"Employee {first_name} and records deleted.", "success")
     except:
-        flash("Deletion error.", "error")
+        flash("Error during deletion.", "error")
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/update_password', methods=['POST'])

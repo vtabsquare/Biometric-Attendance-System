@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Admin Dashboard - FaceAuth</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='238') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='241') }}">
     <style>
         :root { --primary: #1a73e8; --bg: #f8fafc; --sidebar: #ffffff; }
         body { display: flex; background: var(--bg); margin: 0; font-family: 'Inter', sans-serif; height: 100vh; overflow: hidden; }
@@ -17,7 +17,7 @@
 
         .main-content { margin-left: 260px; padding: 40px; width: calc(100% - 270px); height: 100vh; overflow-y: auto; box-sizing: border-box; }
         
-        /* FIX: Header Alignment */
+        /* FIXED: Header Alignment */
         .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
         
         .search-container { position: relative; margin-bottom: 25px; width: 100%; max-width: 400px; }
@@ -54,6 +54,7 @@
         .modal-content input, .modal-content select { 
             width: 100%; padding: 14px; margin-bottom: 20px; border: 1px solid #e2e8f0; border-radius: 12px; box-sizing: border-box; font-size: 14px; background: #f8fafc; outline: none; transition: 0.2s;
         }
+        .modal-content input:focus, .modal-content select:focus { border-color: var(--primary); background: #fff; }
     </style>
 </head>
 <body>

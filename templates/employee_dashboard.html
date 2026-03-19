@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Employee Dashboard - FaceAuth</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='239') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='240') }}">
     <style>
         :root { --primary: #1a73e8; --bg: #f8fafc; --sidebar: #ffffff; }
         body { display: flex; background: var(--bg); margin: 0; font-family: 'Inter', sans-serif; min-height: 100vh; }
@@ -40,7 +40,7 @@
         <div class="warning-card">
             <h3 style="margin-top:0; color:#1e293b; font-size: 20px;">Session Alert!</h3>
             <h1 id="popupTimer" style="color: #d93025; font-size: 64px; margin: 10px 0; font-weight: 800;">00:00</h1>
-            <p style="color: #64748b; font-size: 14px; margin-bottom: 20px;">Your session has been recorded as <b>Logged Out</b>. Choose an option to resume.</p>
+            <p style="color: #64748b; font-size: 14px; margin-bottom: 20px;">Your working session has expired. Choose an option to resume.</p>
 
             <div style="text-align:left; margin-bottom:15px; background: #f8fafc; padding: 15px; border-radius: 15px; border: 1px solid #e2e8f0;">
                 <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
@@ -48,9 +48,9 @@
                     <label for="optMeeting" style="font-weight:700; color: #334155;">🤝 I am in a Meeting</label>
                 </div>
                 <select id="popupDuration" style="width:100%; padding:10px; border-radius:8px; border:1px solid #cbd5e1; font-weight:600; color:#1a73e8; outline:none;">
-                    <option value="600">Postpone 10 Mins</option>
-                    <option value="1800">Postpone 30 Mins</option>
-                    <option value="3600">Postpone 1 Hour</option>
+                    <option value="600">Add 10 Mins</option>
+                    <option value="1800">Add 30 Mins</option>
+                    <option value="3600">Add 1 Hour</option>
                 </select>
                 <button onclick="submitMeetingFromPopup()" style="width:100%; margin-top:12px; background:#1a73e8; color:white; border:none; padding:12px; border-radius:8px; font-weight:bold; cursor:pointer;">Extend as Meeting</button>
             </div>
@@ -58,11 +58,11 @@
             <div style="margin: 15px 0; color: #cbd5e1; font-weight: 600;">OR</div>
 
             <div style="text-align:left; background: #ffffff; padding: 15px; border-radius: 15px; border: 1px solid #e2e8f0;">
-                <p style="margin:0 0 10px 0; font-weight:700; color:#334155;">👤 Not in a meeting?</p>
-                <button onclick="window.location.href='/verify-face?mode=login'" style="width:100%; background:#10b981; color:white; border:none; padding:12px; border-radius:8px; font-weight:bold; cursor:pointer;">Verify Face & Login Again</button>
+                <p style="margin:0 0 10px 0; font-weight:700; color:#334155;">👤 Continue Working?</p>
+                <button onclick="window.location.href='/verify-face?mode=login'" style="width:100%; background:#10b981; color:white; border:none; padding:12px; border-radius:8px; font-weight:bold; cursor:pointer;">Verify Face & Login</button>
             </div>
 
-            <button onclick="window.location.href='/logout'" style="background:none; border:none; color:#94a3b8; margin-top:20px; cursor:pointer; font-weight:600; font-size:13px;">Exit Application</button>
+            <button onclick="handleSecureLogout()" style="background:none; border:none; color:#94a3b8; margin-top:20px; cursor:pointer; font-weight:600; font-size:13px;">Logout & Exit</button>
         </div>
     </div>
 
@@ -76,7 +76,7 @@
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:40px;">
             <div>
                 <h1>Welcome, {{ name }}!</h1>
-                <p style="color:#64748b">Your biometric session is monitored. Re-verification required every 2 hours.</p>
+                <p style="color:#64748b">Your biometric session is active. Re-verify every 2 hours.</p>
             </div>
             <div class="timer-display">🕒 <span id="timer">Calculating...</span></div>
         </div>
@@ -112,22 +112,22 @@
 
     <script>
         const loginTime = {{ session.get('last_auth', 0) }}; 
-        const baseTime = 120; // 2 Mins for testing
+        const baseTime = 120; // 2 Minutes for Testing. Change to 7200 for 2 Hours.
         let extraTime = 0; 
         let isWarningActive = false;
         let originalTitle = document.title;
         let flashInterval = null;
 
+        // Request Notification Permission
         if (Notification.permission !== "granted") {
             Notification.requestPermission();
         }
 
-        // ISSUE #3 FIX: If they logout during a meeting, tell Python to close the meeting row NOW
+        // SECURE LOGOUT HANDLER
         async function handleSecureLogout() {
-            // This checks if the session timer says we are currently in an 'extended' meeting state
-            if (extraTime > 0) {
-                await fetch('/secure_logout_meeting', { method: 'POST' });
-            }
+            // 1. Tell Python to stop any active meeting/session timers NOW
+            await fetch('/prepare_logout', { method: 'POST' });
+            // 2. Go to Face Verify. Mode 'logout' ensures it goes to landing page AFTER scan.
             window.location.href = '/verify-face?mode=logout';
         }
 
@@ -154,7 +154,9 @@
         }
 
         async function triggerSecurityAlert() {
+            // Record logout time in sheet automatically
             await fetch('/auto_logout_record', { method: 'POST' });
+
             document.getElementById('warningOverlay').style.display = 'flex';
 
             if (!flashInterval) {
@@ -163,9 +165,11 @@
                 }, 1000);
             }
 
+            // PERSISTENT NOTIFICATION (Works when minimized)
             if (Notification.permission === "granted") {
-                const n = new Notification("FaceAuth: Session Alert", {
+                const n = new Notification("FaceAuth: SESSION EXPIRED", {
                     body: "Session expired! Please extend via Meeting or Re-verify face.",
+                    tag: "session-alert",
                     requireInteraction: true 
                 });
                 n.onclick = () => { window.focus(); clearInterval(flashInterval); document.title = originalTitle; };
