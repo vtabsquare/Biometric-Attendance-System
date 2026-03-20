@@ -146,7 +146,7 @@ def find_open_attendance(first_name: str, date_str: str):
         filter_query=(
             f"crc6f_firstname eq '{first_name}' "
             f"and crc6f_date eq '{date_str}' "
-            f"and (crc6f_logouttime eq '' or crc6f_logouttime eq null)"
+            f"and crc6f_logouttime eq null"
         ),
     )
     return records[0] if records else None
@@ -163,7 +163,7 @@ def find_open_meeting_attendance(first_name: str, date_str: str):
             f"crc6f_firstname eq '{first_name}' "
             f"and crc6f_date eq '{date_str}' "
             f"and crc6f_status eq 'In Meeting' "
-            f"and (crc6f_logouttime eq '' or crc6f_logouttime eq null)"
+            f"and crc6f_logouttime eq null"
         ),
     )
     return records[0] if records else None

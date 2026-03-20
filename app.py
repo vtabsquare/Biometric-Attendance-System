@@ -113,12 +113,21 @@ def _norm_user(dv_record: dict) -> dict:
 
 def _norm_attendance(dv_record: dict) -> dict:
     if not dv_record: return {}
+    def _parse_dt(val):
+        """Extract HH:MM:SS from an ISO datetime string like '2026-03-20T19:28:31Z'."""
+        if not val: return ''
+        try:
+            if 'T' in str(val):
+                return str(val).split('T')[1].replace('Z', '').split('+')[0][:8]
+            return str(val)
+        except:
+            return str(val)
     return {
         'First Name': dv_record.get('crc6f_firstname', ''),
         'Last Name': dv_record.get('crc6f_lastname', ''),
         'Date': dv_record.get('crc6f_date', ''),
-        'Login Time': dv_record.get('crc6f_logintime', ''),
-        'Logout Time': dv_record.get('crc6f_logouttime', ''),
+        'Login Time': _parse_dt(dv_record.get('crc6f_logintime', '')),
+        'Logout Time': _parse_dt(dv_record.get('crc6f_logouttime', '')),
         'Status': dv_record.get('crc6f_status', ''),
         'Login Location': dv_record.get('crc6f_loginlocation', ''),
         'Logout Location': dv_record.get('crc6f_logoutlocation', ''),
@@ -261,7 +270,8 @@ def process_verification():
         if len(live_enc) > 0 and face_recognition.compare_faces([stored_enc], live_enc[0], tolerance=0.5)[0]:
             IST = pytz.timezone('Asia/Kolkata')
             now = datetime.now(IST)
-            today, cur_time = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
+            today = now.strftime("%Y-%m-%d")
+            cur_time_iso = now.strftime("%Y-%m-%dT%H:%M:%SZ")
             
             if mode == 'logout':
                 # --- LOCATION MISMATCH CHECK ---
@@ -289,7 +299,7 @@ def process_verification():
                             )
 
                     update_attendance(open_rec[ATTENDANCE_ID_FIELD], {
-                        "crc6f_logouttime": cur_time,
+                        "crc6f_logouttime": cur_time_iso,
                         "crc6f_status": "Present",
                         "crc6f_logoutlocation": full_loc_string,
                     })
@@ -301,7 +311,7 @@ def process_verification():
                     first_name=user['First Name'],
                     last_name=user['Last Name'],
                     date_str=today,
-                    login_time=cur_time,
+                    login_time=cur_time_iso,
                     status="Present",
                     login_location=full_loc_string,
                     employee_id=user['EmployeeID'],
@@ -321,12 +331,13 @@ def prepare_logout():
     try:
         IST = pytz.timezone('Asia/Kolkata')
         now = datetime.now(IST)
-        today, cur_time = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
+        today = now.strftime("%Y-%m-%d")
+        cur_time_iso = now.strftime("%Y-%m-%dT%H:%M:%SZ")
         
         meeting_rec = find_open_meeting_attendance(session.get('first_name'), today)
         if meeting_rec:
             update_attendance(meeting_rec[ATTENDANCE_ID_FIELD], {
-                "crc6f_logouttime": cur_time,
+                "crc6f_logouttime": cur_time_iso,
             })
         return jsonify({"success": True})
     except:
@@ -338,12 +349,13 @@ def auto_logout_record():
     try:
         IST = pytz.timezone('Asia/Kolkata')
         now = datetime.now(IST)
-        today, cur_time = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
+        today = now.strftime("%Y-%m-%d")
+        cur_time_iso = now.strftime("%Y-%m-%dT%H:%M:%SZ")
         
         open_rec = find_open_attendance(session.get('first_name'), today)
         if open_rec:
             update_attendance(open_rec[ATTENDANCE_ID_FIELD], {
-                "crc6f_logouttime": cur_time,
+                "crc6f_logouttime": cur_time_iso,
                 "crc6f_status": "Logged Out (Timeout)",
             })
         return jsonify({"success": True})
@@ -360,13 +372,14 @@ def start_meeting():
         user = _norm_user(dv_user)
         IST = pytz.timezone('Asia/Kolkata')
         now = datetime.now(IST)
-        today, start_time = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
-        end_time = (now + timedelta(minutes=duration)).strftime("%H:%M:%S")
+        today = now.strftime("%Y-%m-%d")
+        start_time_iso = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+        end_time_iso = (now + timedelta(minutes=duration)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         open_rec = find_open_attendance(user['First Name'], today)
         if open_rec:
             update_attendance(open_rec[ATTENDANCE_ID_FIELD], {
-                "crc6f_logouttime": start_time,
+                "crc6f_logouttime": start_time_iso,
                 "crc6f_status": "Transition to Meeting",
             })
         
@@ -374,11 +387,11 @@ def start_meeting():
             first_name=user['First Name'],
             last_name=user['Last Name'],
             date_str=today,
-            login_time=start_time,
+            login_time=start_time_iso,
             status="In Meeting",
             login_location="Meeting Popup",
             employee_id=user['EmployeeID'],
-            logout_time=end_time,
+            logout_time=end_time_iso,
             logout_location="Meeting Popup",
         )
         
