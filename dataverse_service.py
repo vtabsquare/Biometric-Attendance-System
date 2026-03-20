@@ -124,12 +124,14 @@ def create_attendance(first_name: str, last_name: str, date_str: str,
         "crc6f_lastname": last_name,
         "crc6f_date": date_str,
         "crc6f_logintime": login_time,
-        "crc6f_logouttime": logout_time,
         "crc6f_status": status,
         "crc6f_loginlocation": login_location,
-        "crc6f_logoutlocation": logout_location,
         "crc6f_employeeid": employee_id,
     }
+    # Only add optional fields if they have a non-empty value
+    if logout_time: data["crc6f_logouttime"] = logout_time
+    if logout_location: data["crc6f_logoutlocation"] = logout_location
+    
     return create_record(ATTENDANCE_TABLE, data)
 
 
