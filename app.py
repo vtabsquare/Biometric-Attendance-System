@@ -182,7 +182,7 @@ def login():
             if check_password_hash(user['Password'], password):
                 session.clear()
                 session.permanent = True
-                app.permanent_session_lifetime = timedelta(minutes=120) # 2 Hours
+                app.permanent_session_lifetime = timedelta(minutes=1) # TESTING: 1 min (change back to 120 for production)
                 session.update({
                     'user_id': user['record_id'],
                     'first_name': user['First Name'], 

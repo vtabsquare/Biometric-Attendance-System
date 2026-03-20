@@ -112,7 +112,7 @@
 
     <script>
         const loginTime = {{ session.get('last_auth', 0) }}; 
-        const baseTime = 7200; // 2 Hours (7200 seconds)
+        const baseTime = 60; // TESTING: 1 min (change back to 7200 for production)
         let extraTime = 0; 
         let isWarningActive = false;
         let originalTitle = document.title;
