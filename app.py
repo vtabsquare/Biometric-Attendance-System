@@ -2,8 +2,6 @@ import os
 import base64
 import cv2
 import face_recognition
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
 import numpy as np
 import random
 import time
@@ -18,6 +16,27 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
 import pytz
 from dotenv import load_dotenv
+
+# --- Dataverse Service Layer ---
+from dataverse_service import (
+    get_user_by_email,
+    get_user_by_id,
+    get_user_by_employeeid,
+    create_user,
+    update_user_face_encoding,
+    update_user_password,
+    get_all_employees,
+    delete_user,
+    create_attendance,
+    find_open_attendance,
+    find_open_meeting_attendance,
+    update_attendance,
+    get_attendance_by_date,
+    get_attendance_by_name_and_date,
+    delete_attendance_by_employee,
+    USERS_ID_FIELD,
+    ATTENDANCE_ID_FIELD,
+)
 
 # --- DLIB PATCH FOR RENDER MEMORY ---
 try:
@@ -37,24 +56,49 @@ app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET")
 CORS(app) 
 
-# --- GOOGLE SHEETS CONNECTION ---
-def get_sheets():
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds_json = os.getenv("GOOGLE_CREDS_JSON")
-    
-    if creds_json:
-        info = json.loads(creds_json)
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(info, scope)
-    else:
-        creds = ServiceAccountCredentials.from_json_keyfile_name("google_creds.json", scope)
-        
-    client = gspread.authorize(creds)
-    spreadsheet = client.open("Office_Attendance_System")
-    return spreadsheet.worksheet("users"), spreadsheet.worksheet("Attendance")
-
 BREVO_API_KEY = os.getenv("BREVO_API_KEY")
 SENDER_EMAIL = os.getenv("SENDER_EMAIL")
 COMPANY_NAME = os.getenv("COMPANY_NAME")
+
+# --- NORMALIZATION HELPERS ---
+# These functions transform Dataverse records into the dict format
+# that the Jinja templates expect (using the old Google Sheets column names).
+# This avoids changing ANY template files.
+
+def _norm_user(dv_record: dict) -> dict:
+    """Normalize a Dataverse user record to template-friendly dict."""
+    if not dv_record:
+        return {}
+    return {
+        'First Name': dv_record.get('crc6f_firstname', ''),
+        'Last Name': dv_record.get('crc6f_lastname', ''),
+        'Email': dv_record.get('crc6f_email', ''),
+        'Department': '',  # Not stored in Dataverse
+        'Password': dv_record.get('crc6f_password', ''),
+        'Role': dv_record.get('crc6f_role', ''),
+        'FaceEncoding': dv_record.get('crc6f_faceencoding', ''),
+        'Status': dv_record.get('crc6f_status', ''),
+        'EmployeeID': dv_record.get('crc6f_employeeid', ''),
+        'record_id': dv_record.get(USERS_ID_FIELD, ''),
+    }
+
+
+def _norm_attendance(dv_record: dict) -> dict:
+    """Normalize a Dataverse attendance record to template-friendly dict."""
+    if not dv_record:
+        return {}
+    return {
+        'First Name': dv_record.get('crc6f_firstname', ''),
+        'Last Name': dv_record.get('crc6f_lastname', ''),
+        'Date': dv_record.get('crc6f_date', ''),
+        'Login Time': dv_record.get('crc6f_logintime', ''),
+        'Logout Time': dv_record.get('crc6f_logouttime', ''),
+        'Status': dv_record.get('crc6f_status', ''),
+        'Login Location': dv_record.get('crc6f_loginlocation', ''),
+        'Logout Location': dv_record.get('crc6f_logoutlocation', ''),
+        'record_id': dv_record.get(ATTENDANCE_ID_FIELD, ''),
+    }
+
 
 # --- HELPERS ---
 def is_password_strong(password):
@@ -79,6 +123,11 @@ def send_email_via_brevo(to_email, subject, html_content):
     except:
         return False
 
+def _generate_employee_id(email: str) -> str:
+    """Generate a unique employee ID from email. Uses the email as the ID."""
+    return email.lower()
+
+
 # --- ROUTES ---
 
 @app.route('/')
@@ -90,37 +139,45 @@ def login():
     if request.method == 'POST':
         email = request.form.get('email', '').strip().lower()
         password = request.form.get('password', '').strip()
-        user_sheet, _ = get_sheets()
         try:
-            cell = user_sheet.find(email, in_column=3)
-            user_data = user_sheet.row_values(cell.row)
-            if check_password_hash(user_data[4], password):
+            dv_user = get_user_by_email(email)
+            if not dv_user:
+                flash("User not found.", "error")
+                return render_template('login.html')
+            
+            user = _norm_user(dv_user)
+            
+            if check_password_hash(user['Password'], password):
                 session.clear()
                 session.permanent = True
                 app.permanent_session_lifetime = timedelta(minutes=2) 
                 session.update({
-                    'user_row': cell.row, 
-                    'first_name': user_data[0], 
-                    'last_name': user_data[1], 
-                    'role': user_data[5].lower(),
+                    'user_id': user['record_id'],  # Dataverse GUID replaces row number
+                    'first_name': user['First Name'], 
+                    'last_name': user['Last Name'], 
+                    'employee_id': user['EmployeeID'],
+                    'role': user['Role'].lower(),
                     'verified': False,
                     'last_auth': time.time() 
                 })
-                if len(user_data) >= 8 and user_data[7] == "1":
+                
+                # Must reset password on first login?
+                if user['Status'] is True:
                     return redirect(url_for('reset_password_page'))
                 
-                if user_data[5].lower() == 'admin': 
+                if user['Role'].lower() == 'admin': 
                     session['verified'] = True
                     return redirect(url_for('admin_dashboard'))
                 
-                if len(user_data) < 7 or not user_data[6]:
+                if not user['FaceEncoding']:
                     flash("Face not registered. Check your email.", "error")
                     return redirect(url_for('login'))
                 
                 return redirect(url_for('verify_face'))
             else:
                 flash("Invalid credentials.", "error")
-        except:
+        except Exception as e:
+            print(f"Login error: {e}")
             flash("User not found.", "error")
     return render_template('login.html')
 
@@ -130,15 +187,15 @@ def reset_password_page():
 
 # --- FACE PROCESSING ---
 
-@app.route('/register_face/<int:user_id>')
-def register_face(user_id): 
-    session['registering_row'] = user_id
-    return render_template('register_face.html', user_id=user_id)
+@app.route('/register_face/<record_id>')
+def register_face(record_id): 
+    session['registering_id'] = record_id
+    return render_template('register_face.html', user_id=record_id)
 
 @app.route('/process_registration', methods=['POST'])
 def process_registration():
-    row_id = session.get('registering_row')
-    if not row_id: return jsonify({"success": False, "message": "Session expired"})
+    record_id = session.get('registering_id')
+    if not record_id: return jsonify({"success": False, "message": "Session expired"})
     data = request.get_json()
     img_data = base64.b64decode(data['image'].split(',')[1])
     img = cv2.imdecode(np.frombuffer(img_data, np.uint8), cv2.IMREAD_COLOR)
@@ -147,30 +204,29 @@ def process_registration():
     encs = face_recognition.face_encodings(rgb_small_img)
     if len(encs) > 0:
         encoding_str = json.dumps(encs[0].tolist())
-        user_sheet, _ = get_sheets()
-        user_sheet.update_cell(row_id, 7, encoding_str)
+        update_user_face_encoding(record_id, encoding_str)
         return jsonify({"success": True})
     return jsonify({"success": False, "message": "No face detected"})
 
 @app.route('/verify-face')
 def verify_face():
-    if 'user_row' not in session: return redirect(url_for('login'))
+    if 'user_id' not in session: return redirect(url_for('login'))
     mode = request.args.get('mode', 'login') 
     return render_template('verify_face.html', name=session.get('first_name'), mode=mode)
 
 @app.route('/process_verification', methods=['POST'])
 def process_verification():
     data = request.get_json()
-    row_id = session.get('user_row')
+    record_id = session.get('user_id')
     mode = data.get('mode', 'login')
     loc_text = data.get('detailed_location', 'Unknown')
     map_link = data.get('location', '#')
     full_loc_string = f"{loc_text} | {map_link}" 
 
     try:
-        user_sheet, attn_sheet = get_sheets()
-        user_data = user_sheet.row_values(row_id)
-        stored_enc = np.array(json.loads(user_data[6]))
+        dv_user = get_user_by_id(record_id)
+        user = _norm_user(dv_user)
+        stored_enc = np.array(json.loads(user['FaceEncoding']))
         img_data = base64.b64decode(data['image'].split(',')[1])
         img = cv2.imdecode(np.frombuffer(img_data, np.uint8), cv2.IMREAD_COLOR)
         rgb_small = cv2.cvtColor(cv2.resize(img, (0,0), fx=0.25, fy=0.25), cv2.COLOR_BGR2RGB)
@@ -181,85 +237,107 @@ def process_verification():
             now = datetime.now(IST)
             today, cur_time = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
             
-            records = attn_sheet.get_all_records()
-            open_row = next((i for i, r in enumerate(records, 2) if r['First Name'] == user_data[0] and r['Date'] == today and not r.get('Logout Time')), None)
-
-            if open_row:
-                attn_sheet.update_cell(open_row, 5, cur_time)
-                attn_sheet.update_cell(open_row, 6, "Present")
-                attn_sheet.update_cell(open_row, 8, full_loc_string)
+            # Check if there's an open attendance row (for logout update)
+            open_rec = find_open_attendance(user['First Name'], today)
+            if open_rec:
+                update_attendance(open_rec[ATTENDANCE_ID_FIELD], {
+                    "crc6f_logouttime": cur_time,
+                    "crc6f_status": "Present",
+                    "crc6f_logoutlocation": full_loc_string,
+                })
 
             if mode == 'logout':
                 session.clear() 
                 return jsonify({"success": True, "redirect": "/"})
 
             elif mode == 'login':
-                attn_sheet.append_row([user_data[0], user_data[1], today, cur_time, "", "Present", full_loc_string, ""])
+                create_attendance(
+                    first_name=user['First Name'],
+                    last_name=user['Last Name'],
+                    date_str=today,
+                    login_time=cur_time,
+                    status="Present",
+                    login_location=full_loc_string,
+                    employee_id=user['EmployeeID'],
+                )
                 session.update({'verified': True, 'last_auth': time.time()})
                 return jsonify({"success": True, "redirect": "/employee/dashboard"})
             
         return jsonify({"success": False, "message": "Face not recognized."})
     except Exception as e:
+        print(f"Verification error: {e}")
         return jsonify({"success": False, "message": "Server error."})
 
 # --- UPDATED: SECURE LOGOUT PREPARATION ---
 @app.route('/prepare_logout', methods=['POST'])
 def prepare_logout():
-    if 'user_row' not in session: return jsonify({"success": False})
+    if 'user_id' not in session: return jsonify({"success": False})
     try:
-        _, attn_sheet = get_sheets()
         IST = pytz.timezone('Asia/Kolkata')
         now = datetime.now(IST)
         today, cur_time = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
-        records = attn_sheet.get_all_records()
-        # Find and accurately end the 'In Meeting' row if user is leaving early
-        for i, r in enumerate(records, start=2):
-            if r['First Name'] == session.get('first_name') and r['Date'] == today and r['Status'] == 'In Meeting' and not r.get('Logout Time'):
-                attn_sheet.update_cell(i, 5, cur_time) 
-                break
+        
+        # Find 'In Meeting' row with no logout time
+        meeting_rec = find_open_meeting_attendance(session.get('first_name'), today)
+        if meeting_rec:
+            update_attendance(meeting_rec[ATTENDANCE_ID_FIELD], {
+                "crc6f_logouttime": cur_time,
+            })
         return jsonify({"success": True})
     except:
         return jsonify({"success": False})
 
 @app.route('/auto_logout_record', methods=['POST'])
 def auto_logout_record():
-    if 'user_row' not in session: return jsonify({"success": False})
+    if 'user_id' not in session: return jsonify({"success": False})
     try:
-        _, attn_sheet = get_sheets()
         IST = pytz.timezone('Asia/Kolkata')
         now = datetime.now(IST)
         today, cur_time = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
-        records = attn_sheet.get_all_records()
-        for i, r in enumerate(records, start=2):
-            if r['First Name'] == session.get('first_name') and r['Date'] == today and not r.get('Logout Time'):
-                attn_sheet.update_cell(i, 5, cur_time)
-                attn_sheet.update_cell(i, 6, "Logged Out (Timeout)")
-                break
+        
+        open_rec = find_open_attendance(session.get('first_name'), today)
+        if open_rec:
+            update_attendance(open_rec[ATTENDANCE_ID_FIELD], {
+                "crc6f_logouttime": cur_time,
+                "crc6f_status": "Logged Out (Timeout)",
+            })
         return jsonify({"success": True})
     except:
         return jsonify({"success": False})
 
 @app.route('/start_meeting', methods=['POST'])
 def start_meeting():
-    if 'user_row' not in session: return jsonify({"success": False})
+    if 'user_id' not in session: return jsonify({"success": False})
     data = request.get_json()
     duration = int(data.get('duration', 10)) 
     try:
-        user_sheet, attn_sheet = get_sheets()
-        user_data = user_sheet.row_values(session.get('user_row'))
+        dv_user = get_user_by_id(session.get('user_id'))
+        user = _norm_user(dv_user)
         IST = pytz.timezone('Asia/Kolkata')
         now = datetime.now(IST)
         today, start_time = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
         end_time = (now + timedelta(minutes=duration)).strftime("%H:%M:%S")
 
-        records = attn_sheet.get_all_records()
-        for i, r in enumerate(records, start=2):
-            if r['First Name'] == user_data[0] and r['Date'] == today and not r.get('Logout Time'):
-                attn_sheet.update_cell(i, 5, start_time)
-                attn_sheet.update_cell(i, 6, "Transition to Meeting")
-                break
+        # Close the current open attendance entry
+        open_rec = find_open_attendance(user['First Name'], today)
+        if open_rec:
+            update_attendance(open_rec[ATTENDANCE_ID_FIELD], {
+                "crc6f_logouttime": start_time,
+                "crc6f_status": "Transition to Meeting",
+            })
         
-        attn_sheet.append_row([user_data[0], user_data[1], today, start_time, end_time, "In Meeting", "Meeting Popup", "Meeting Popup"])
+        # Create a new meeting attendance row
+        create_attendance(
+            first_name=user['First Name'],
+            last_name=user['Last Name'],
+            date_str=today,
+            login_time=start_time,
+            status="In Meeting",
+            login_location="Meeting Popup",
+            employee_id=user['EmployeeID'],
+            logout_time=end_time,
+            logout_location="Meeting Popup",
+        )
         
         session.permanent = True
         app.permanent_session_lifetime = timedelta(seconds=(duration * 60))
@@ -273,26 +351,31 @@ def start_meeting():
 @app.route('/admin/dashboard')
 def admin_dashboard():
     if session.get('role') != 'admin': return redirect(url_for('login'))
-    user_sheet, attn_sheet = get_sheets()
-    employees = user_sheet.get_all_records()
-    attendance = attn_sheet.get_all_records()
+    
+    dv_employees = get_all_employees()
     today = datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y-%m-%d")
+    dv_attendance = get_attendance_by_date(today)
+    
+    # Normalize attendance records for template compatibility
+    attendance_list = [_norm_attendance(a) for a in dv_attendance]
+    
     employee_list = []
-    for i, u in enumerate(employees, start=2):
-        if u.get('Role') == 'employee':
-            u['row_id'] = i
-            u['logs'] = [row for row in attendance if row['First Name'] == u['First Name'] and row['Date'] == today]
-            employee_list.append(u)
+    for dv_emp in dv_employees:
+        emp = _norm_user(dv_emp)
+        # Attach today's logs for this employee
+        emp['logs'] = [a for a in attendance_list if a['First Name'] == emp['First Name']]
+        employee_list.append(emp)
+    
     return render_template('admin_dashboard.html', employees=employee_list)
 
 @app.route('/employee/dashboard')
 def employee_dashboard():
-    if 'user_row' not in session or not session.get('verified'):
+    if 'user_id' not in session or not session.get('verified'):
         return redirect(url_for('login'))
-    _, attn_sheet = get_sheets()
+    
     today = datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y-%m-%d")
-    all_attendance = attn_sheet.get_all_records()
-    my_logs = [row for row in all_attendance if row['First Name'] == session.get('first_name') and row['Date'] == today]
+    dv_records = get_attendance_by_name_and_date(session.get('first_name'), today)
+    my_logs = [_norm_attendance(r) for r in dv_records]
     my_logs.reverse() 
     return render_template('employee_dashboard.html', name=session.get('first_name'), records=my_logs)
 
@@ -301,14 +384,26 @@ def employee_dashboard():
 @app.route('/add_employee', methods=['POST'])
 def add_employee():
     if session.get('role') != 'admin': return redirect(url_for('login'))
-    f, l, d = request.form.get('first_name'), request.form.get('last_name'), request.form.get('department')
+    f = request.form.get('first_name')
+    l = request.form.get('last_name')
     e = request.form.get('email', '').strip().lower()
     temp_pass = ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(8))
-    user_sheet, _ = get_sheets()
+    
     try:
-        user_sheet.append_row([f, l, e, d, generate_password_hash(temp_pass), 'employee', '', '1'])
-        user_row = user_sheet.find(e).row
-        reg_link = f"https://biometric-attendance-system-tsca.onrender.com/register_face/{user_row}"
+        employee_id = _generate_employee_id(e)
+        created_record = create_user(
+            first_name=f,
+            last_name=l,
+            email=e,
+            hashed_password=generate_password_hash(temp_pass),
+            role='employee',
+            employee_id=employee_id,
+            status=True,
+        )
+        
+        # Use the Dataverse GUID for the face registration link
+        new_record_id = created_record.get(USERS_ID_FIELD)
+        reg_link = f"https://biometric-attendance-system-tsca.onrender.com/register_face/{new_record_id}"
         
         email_html = f"""
         <div style="background-color: #121212; color: #ffffff; padding: 40px; font-family: sans-serif; border-radius: 10px;">
@@ -325,38 +420,39 @@ def add_employee():
         send_email_via_brevo(e, "Account Ready - Action Required", email_html)
         flash(f"Employee {f} added!", "success")
     except Exception as err:
+        print(f"Add employee error: {err}")
         flash(f"Error: {err}", "error")
     return redirect(url_for('admin_dashboard'))
 
-@app.route('/delete_employee/<int:row_id>')
-def delete_employee(row_id):
+@app.route('/delete_employee/<record_id>')
+def delete_employee(record_id):
     if session.get('role') != 'admin': return redirect(url_for('login'))
-    user_sheet, attn_sheet = get_sheets()
     try:
-        employee_data = user_sheet.row_values(row_id)
-        first_name = employee_data[0]
-        # Wipe Attendance logs from bottom up
-        all_logs = attn_sheet.get_all_values()
-        for i in range(len(all_logs), 1, -1):
-            if all_logs[i-1][0] == first_name:
-                attn_sheet.delete_rows(i)
-        user_sheet.delete_rows(row_id)
+        dv_user = get_user_by_id(record_id)
+        user = _norm_user(dv_user)
+        first_name = user['First Name']
+        
+        # Delete all attendance records for this employee
+        delete_attendance_by_employee(first_name)
+        # Delete the user record
+        delete_user(record_id)
+        
         flash(f"Employee {first_name} and records deleted.", "success")
-    except:
+    except Exception as e:
+        print(f"Delete error: {e}")
         flash("Error during deletion.", "error")
     return redirect(url_for('admin_dashboard'))
 
 @app.route('/update_password', methods=['POST'])
 def update_password():
-    row_id = session.get('user_row')
-    if not row_id: return redirect(url_for('login'))
+    record_id = session.get('user_id')
+    if not record_id: return redirect(url_for('login'))
     new_pass = request.form.get('password')
     if not is_password_strong(new_pass):
         flash("Weak password!", "error")
         return redirect(url_for('reset_password_page'))
-    user_sheet, _ = get_sheets()
-    user_sheet.update_cell(row_id, 5, generate_password_hash(new_pass))
-    user_sheet.update_cell(row_id, 8, "0")
+    
+    update_user_password(record_id, generate_password_hash(new_pass), status=False)
     flash("Success! Please login.", "success")
     return redirect(url_for('login'))
 

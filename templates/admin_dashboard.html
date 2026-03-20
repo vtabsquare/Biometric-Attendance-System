@@ -171,8 +171,8 @@
                             {% endif %}
                         </td>
                         <td>
-                            <button class="action-btn" onclick="showEditModal('{{ emp.row_id }}', '{{ emp['First Name'] }}', '{{ emp['Last Name'] }}', '{{ emp['Department'] }}')">✎</button>
-                            <button class="action-btn" style="color:#ef4444" onclick="confirmDelete('{{ emp.row_id }}', '{{ emp['First Name'] }}')">🗑</button>
+                            <button class="action-btn" onclick="showEditModal('{{ emp.record_id }}', '{{ emp['First Name'] }}', '{{ emp['Last Name'] }}', '{{ emp['Department'] }}')">✎</button>
+                            <button class="action-btn" style="color:#ef4444" onclick="confirmDelete('{{ emp.record_id }}', '{{ emp['First Name'] }}')">🗑</button>
                         </td>
                     </tr>
                     {% endfor %}
@@ -233,11 +233,11 @@
         }
         function showAddModal() { document.getElementById('addModal').style.display = 'block'; }
         function hideAddModal() { document.getElementById('addModal').style.display = 'none'; }
-        function showEditModal(rowId, f, l, d) {
+        function showEditModal(recordId, f, l, d) {
             document.getElementById('edit_f').value = f;
             document.getElementById('edit_l').value = l;
             document.getElementById('edit_d').value = d;
-            document.getElementById('editForm').action = "/edit_employee/" + rowId;
+            document.getElementById('editForm').action = "/edit_employee/" + recordId;
             document.getElementById('editModal').style.display = 'block';
         }
         function hideEditModal() { document.getElementById('editModal').style.display = 'none'; }
