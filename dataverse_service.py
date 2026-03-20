@@ -1,11 +1,3 @@
-"""
-Domain-specific Dataverse service layer for the Face Recognition Attendance System.
-Built on top of dataverse_helper.py generic CRUD operations.
-
-All Dataverse table interactions go through this module. 
-app.py should ONLY import from this file.
-"""
-
 from dataverse_helper import (
     create_record,
     get_record,
@@ -91,6 +83,14 @@ def update_user_password(record_id: str, hashed_password: str,
         "crc6f_password": hashed_password,
         "crc6f_status": status,
     })
+
+# --- NEW: General Update Function for GPS/Login Stats ---
+def update_user_fields(record_id: str, fields_dict: dict):
+    """
+    General purpose function to update any set of fields for a user.
+    Used for saving Login_Lat and Login_Long.
+    """
+    return update_record(USERS_TABLE, record_id, fields_dict)
 
 
 def get_all_employees():

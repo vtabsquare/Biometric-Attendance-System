@@ -1,4 +1,5 @@
 import os
+import math # Added for distance calculation
 import base64
 import cv2
 import face_recognition
@@ -59,34 +60,62 @@ CORS(app)
 BREVO_API_KEY = os.getenv("BREVO_API_KEY")
 SENDER_EMAIL = os.getenv("SENDER_EMAIL")
 COMPANY_NAME = os.getenv("COMPANY_NAME")
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL") # Ensure this is in your .env
+
+# --- NEW: LOCATION MISMATCH HELPERS ---
+
+def get_distance_meters(lat1, lon1, lat2, lon2):
+    """Calculates distance between two points in meters using Haversine formula."""
+    try:
+        if None in [lat1, lon1, lat2, lon2]: return 0
+        lat1, lon1, lat2, lon2 = map(float, [lat1, lon1, lat2, lon2])
+        radius = 6371000  # Earth radius in meters
+        dlat = math.radians(lat2 - lat1)
+        dlon = math.radians(lon2 - lon1)
+        a = (math.sin(dlat / 2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2)**2)
+        return radius * (2 * math.atan2(math.sqrt(a), math.sqrt(1 - a)))
+    except:
+        return 0
+
+def send_location_alert_email(user_email, name, dist, login_pos, logout_pos):
+    """Sends a security alert email via Brevo if location mismatch occurs."""
+    login_map = f"https://www.google.com/maps?q={login_pos}"
+    logout_map = f"https://www.google.com/maps?q={logout_pos}"
+    
+    subject = f"🚨 Security Alert: Location Mismatch - {name}"
+    html_content = f"""
+    <div style="font-family: sans-serif; padding: 20px; border: 2px solid #ff4b2b; border-radius: 10px;">
+        <h2 style="color: #ff4b2b;">Location Mismatch Detected</h2>
+        <p><b>Employee:</b> {name} ({user_email})</p>
+        <p><b>Distance Mismatch:</b> {round(dist, 2)} meters</p>
+        <hr>
+        <p>📍 <b>Login Location:</b> <a href="{login_map}">View on Google Maps</a></p>
+        <p>📍 <b>Logout Location:</b> <a href="{logout_map}">View on Google Maps</a></p>
+        <p style="color: #888; font-size: 12px; margin-top: 20px;">This is an automated security alert from {COMPANY_NAME}.</p>
+    </div>
+    """
+    send_email_via_brevo(ADMIN_EMAIL, subject, html_content)
 
 # --- NORMALIZATION HELPERS ---
-# These functions transform Dataverse records into the dict format
-# that the Jinja templates expect (using the old Google Sheets column names).
-# This avoids changing ANY template files.
-
 def _norm_user(dv_record: dict) -> dict:
-    """Normalize a Dataverse user record to template-friendly dict."""
-    if not dv_record:
-        return {}
+    if not dv_record: return {}
     return {
         'First Name': dv_record.get('crc6f_firstname', ''),
         'Last Name': dv_record.get('crc6f_lastname', ''),
         'Email': dv_record.get('crc6f_email', ''),
-        'Department': '',  # Not stored in Dataverse
         'Password': dv_record.get('crc6f_password', ''),
         'Role': dv_record.get('crc6f_role', ''),
         'FaceEncoding': dv_record.get('crc6f_faceencoding', ''),
         'Status': dv_record.get('crc6f_status', ''),
         'EmployeeID': dv_record.get('crc6f_employeeid', ''),
         'record_id': dv_record.get(USERS_ID_FIELD, ''),
+        # Added for Location Check
+        'Login_Lat': dv_record.get('crc6f_login_lat'), 
+        'Login_Long': dv_record.get('crc6f_login_long')
     }
 
-
 def _norm_attendance(dv_record: dict) -> dict:
-    """Normalize a Dataverse attendance record to template-friendly dict."""
-    if not dv_record:
-        return {}
+    if not dv_record: return {}
     return {
         'First Name': dv_record.get('crc6f_firstname', ''),
         'Last Name': dv_record.get('crc6f_lastname', ''),
@@ -99,8 +128,7 @@ def _norm_attendance(dv_record: dict) -> dict:
         'record_id': dv_record.get(ATTENDANCE_ID_FIELD, ''),
     }
 
-
-# --- HELPERS ---
+# --- HELPERS (Existing) ---
 def is_password_strong(password):
     if len(password) < 8: return False
     if not re.search(r"[A-Z]", password): return False
@@ -124,9 +152,7 @@ def send_email_via_brevo(to_email, subject, html_content):
         return False
 
 def _generate_employee_id(email: str) -> str:
-    """Generate a unique employee ID from email. Uses the email as the ID."""
     return email.lower()
-
 
 # --- ROUTES ---
 
@@ -150,9 +176,9 @@ def login():
             if check_password_hash(user['Password'], password):
                 session.clear()
                 session.permanent = True
-                app.permanent_session_lifetime = timedelta(minutes=2) 
+                app.permanent_session_lifetime = timedelta(minutes=120) # 2 Hours
                 session.update({
-                    'user_id': user['record_id'],  # Dataverse GUID replaces row number
+                    'user_id': user['record_id'],
                     'first_name': user['First Name'], 
                     'last_name': user['Last Name'], 
                     'employee_id': user['EmployeeID'],
@@ -161,7 +187,6 @@ def login():
                     'last_auth': time.time() 
                 })
                 
-                # Must reset password on first login?
                 if user['Status'] is True:
                     return redirect(url_for('reset_password_page'))
                 
@@ -222,6 +247,10 @@ def process_verification():
     loc_text = data.get('detailed_location', 'Unknown')
     map_link = data.get('location', '#')
     full_loc_string = f"{loc_text} | {map_link}" 
+    
+    # Extract Raw Coordinates for Mismatch Check
+    lat = data.get('lat')
+    lon = data.get('lon')
 
     try:
         dv_user = get_user_by_id(record_id)
@@ -237,20 +266,38 @@ def process_verification():
             now = datetime.now(IST)
             today, cur_time = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
             
-            # Check if there's an open attendance row (for logout update)
-            open_rec = find_open_attendance(user['First Name'], today)
-            if open_rec:
-                update_attendance(open_rec[ATTENDANCE_ID_FIELD], {
-                    "crc6f_logouttime": cur_time,
-                    "crc6f_status": "Present",
-                    "crc6f_logoutlocation": full_loc_string,
-                })
-
             if mode == 'logout':
+                # --- LOCATION MISMATCH CHECK ---
+                distance = get_distance_meters(user['Login_Lat'], user['Login_Long'], lat, lon)
+                if distance > 500:
+                    send_location_alert_email(
+                        user['Email'], 
+                        user['First Name'], 
+                        distance, 
+                        f"{user['Login_Lat']},{user['Login_Long']}", 
+                        f"{lat},{lon}"
+                    )
+
+                open_rec = find_open_attendance(user['First Name'], today)
+                if open_rec:
+                    update_attendance(open_rec[ATTENDANCE_ID_FIELD], {
+                        "crc6f_logouttime": cur_time,
+                        "crc6f_status": "Present",
+                        "crc6f_logoutlocation": full_loc_string,
+                    })
                 session.clear() 
                 return jsonify({"success": True, "redirect": "/"})
 
             elif mode == 'login':
+                # --- SAVE LOGIN COORDINATES TO DATAVERSE ---
+                # We update the USER record with current login lat/long for later comparison
+                # Note: Assuming your update_user function supports these fields
+                from dataverse_service import update_user_fields # Update if you have a general update func
+                update_user_fields(record_id, {
+                    "crc6f_login_lat": float(lat) if lat else None,
+                    "crc6f_login_long": float(lon) if lon else None
+                })
+
                 create_attendance(
                     first_name=user['First Name'],
                     last_name=user['Last Name'],
@@ -268,7 +315,7 @@ def process_verification():
         print(f"Verification error: {e}")
         return jsonify({"success": False, "message": "Server error."})
 
-# --- UPDATED: SECURE LOGOUT PREPARATION ---
+# --- SECURE LOGOUT PREPARATION ---
 @app.route('/prepare_logout', methods=['POST'])
 def prepare_logout():
     if 'user_id' not in session: return jsonify({"success": False})
@@ -277,7 +324,6 @@ def prepare_logout():
         now = datetime.now(IST)
         today, cur_time = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
         
-        # Find 'In Meeting' row with no logout time
         meeting_rec = find_open_meeting_attendance(session.get('first_name'), today)
         if meeting_rec:
             update_attendance(meeting_rec[ATTENDANCE_ID_FIELD], {
@@ -318,7 +364,6 @@ def start_meeting():
         today, start_time = now.strftime("%Y-%m-%d"), now.strftime("%H:%M:%S")
         end_time = (now + timedelta(minutes=duration)).strftime("%H:%M:%S")
 
-        # Close the current open attendance entry
         open_rec = find_open_attendance(user['First Name'], today)
         if open_rec:
             update_attendance(open_rec[ATTENDANCE_ID_FIELD], {
@@ -326,7 +371,6 @@ def start_meeting():
                 "crc6f_status": "Transition to Meeting",
             })
         
-        # Create a new meeting attendance row
         create_attendance(
             first_name=user['First Name'],
             last_name=user['Last Name'],
@@ -356,13 +400,11 @@ def admin_dashboard():
     today = datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y-%m-%d")
     dv_attendance = get_attendance_by_date(today)
     
-    # Normalize attendance records for template compatibility
     attendance_list = [_norm_attendance(a) for a in dv_attendance]
     
     employee_list = []
     for dv_emp in dv_employees:
         emp = _norm_user(dv_emp)
-        # Attach today's logs for this employee
         emp['logs'] = [a for a in attendance_list if a['First Name'] == emp['First Name']]
         employee_list.append(emp)
     
@@ -401,7 +443,6 @@ def add_employee():
             status=True,
         )
         
-        # Use the Dataverse GUID for the face registration link
         new_record_id = created_record.get(USERS_ID_FIELD)
         reg_link = f"https://biometric-attendance-system-tsca.onrender.com/register_face/{new_record_id}"
         
@@ -414,7 +455,6 @@ def add_employee():
                 <p style="margin: 0;"><b>2. Face Registration:</b> You must register your face profile before logging in.</p>
             </div>
             <a href="{reg_link}" style="display: inline-block; background-color: #4c8bf5; color: white; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">Register Face Now</a>
-            <p style="font-size: 13px; color: #888888; margin-top: 30px; border-top: 1px solid #333; padding-top: 20px;">Note: You will be asked to change your password on first login for security.</p>
         </div>
         """
         send_email_via_brevo(e, "Account Ready - Action Required", email_html)
@@ -431,12 +471,8 @@ def delete_employee(record_id):
         dv_user = get_user_by_id(record_id)
         user = _norm_user(dv_user)
         first_name = user['First Name']
-        
-        # Delete all attendance records for this employee
         delete_attendance_by_employee(first_name)
-        # Delete the user record
         delete_user(record_id)
-        
         flash(f"Employee {first_name} and records deleted.", "success")
     except Exception as e:
         print(f"Delete error: {e}")

