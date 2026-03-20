@@ -64,7 +64,7 @@ def create_user(first_name: str, last_name: str, email: str,
         "crc6f_role": role,
         "crc6f_employeeid": employee_id,
         "crc6f_status": status,
-        "crc6f_faceencoding": "",
+        "crc6f_faceencoding1": "",
     }
     return create_record(USERS_TABLE, data)
 
@@ -72,7 +72,7 @@ def create_user(first_name: str, last_name: str, email: str,
 def update_user_face_encoding(record_id: str, encoding_json: str):
     """Store the face encoding JSON string for a user."""
     return update_record(USERS_TABLE, record_id, {
-        "crc6f_faceencoding": encoding_json,
+        "crc6f_faceencoding1": encoding_json,
     })
 
 

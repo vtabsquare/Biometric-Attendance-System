@@ -107,7 +107,7 @@ def migrate_users(user_sheet):
             "crc6f_role": role,
             "crc6f_employeeid": employee_id,
             "crc6f_status": status,
-            "crc6f_faceencoding": face_encoding if face_encoding else "",
+            "crc6f_faceencoding1": face_encoding if face_encoding else "",
         }
 
         if DRY_RUN:

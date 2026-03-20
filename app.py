@@ -105,7 +105,7 @@ def _norm_user(dv_record: dict) -> dict:
         'Email': dv_record.get('crc6f_email', ''),
         'Password': dv_record.get('crc6f_password', ''),
         'Role': dv_record.get('crc6f_role', ''),
-        'FaceEncoding': dv_record.get('crc6f_faceencoding', ''),
+        'FaceEncoding': dv_record.get('crc6f_faceencoding1', ''),
         'Status': dv_record.get('crc6f_status', ''),
         'EmployeeID': dv_record.get('crc6f_employeeid', ''),
         'record_id': dv_record.get(USERS_ID_FIELD, ''),
