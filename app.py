@@ -109,9 +109,6 @@ def _norm_user(dv_record: dict) -> dict:
         'Status': dv_record.get('crc6f_status', ''),
         'EmployeeID': dv_record.get('crc6f_employeeid', ''),
         'record_id': dv_record.get(USERS_ID_FIELD, ''),
-        # Added for Location Check
-        'Login_Lat': dv_record.get('crc6f_login_lat'), 
-        'Login_Long': dv_record.get('crc6f_login_long')
     }
 
 def _norm_attendance(dv_record: dict) -> dict:
@@ -268,18 +265,29 @@ def process_verification():
             
             if mode == 'logout':
                 # --- LOCATION MISMATCH CHECK ---
-                distance = get_distance_meters(user['Login_Lat'], user['Login_Long'], lat, lon)
-                if distance > 500:
-                    send_location_alert_email(
-                        user['Email'], 
-                        user['First Name'], 
-                        distance, 
-                        f"{user['Login_Lat']},{user['Login_Long']}", 
-                        f"{lat},{lon}"
-                    )
-
                 open_rec = find_open_attendance(user['First Name'], today)
                 if open_rec:
+                    login_loc_str = open_rec.get('crc6f_loginlocation', '')
+                    login_lat, login_lon = None, None
+                    if "q=" in login_loc_str:
+                        try:
+                            coords = login_loc_str.split("q=")[-1].split(',')
+                            login_lat = float(coords[0])
+                            login_lon = float(coords[1])
+                        except:
+                            pass
+                    
+                    if login_lat is not None and login_lon is not None:
+                        distance = get_distance_meters(login_lat, login_lon, lat, lon)
+                        if distance > 500:
+                            send_location_alert_email(
+                                user['Email'], 
+                                user['First Name'], 
+                                distance, 
+                                f"{login_lat},{login_lon}", 
+                                f"{lat},{lon}"
+                            )
+
                     update_attendance(open_rec[ATTENDANCE_ID_FIELD], {
                         "crc6f_logouttime": cur_time,
                         "crc6f_status": "Present",
@@ -289,15 +297,6 @@ def process_verification():
                 return jsonify({"success": True, "redirect": "/"})
 
             elif mode == 'login':
-                # --- SAVE LOGIN COORDINATES TO DATAVERSE ---
-                # We update the USER record with current login lat/long for later comparison
-                # Note: Assuming your update_user function supports these fields
-                from dataverse_service import update_user_fields # Update if you have a general update func
-                update_user_fields(record_id, {
-                    "crc6f_login_lat": float(lat) if lat else None,
-                    "crc6f_login_long": float(lon) if lon else None
-                })
-
                 create_attendance(
                     first_name=user['First Name'],
                     last_name=user['Last Name'],
