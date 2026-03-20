@@ -112,7 +112,7 @@
 
     <script>
         const loginTime = {{ session.get('last_auth', 0) }}; 
-        const baseTime = 120; // 2 Minutes for Testing. Change to 7200 for 2 Hours.
+        const baseTime = 7200; // 2 Hours (7200 seconds)
         let extraTime = 0; 
         let isWarningActive = false;
         let originalTitle = document.title;
@@ -123,12 +123,27 @@
             Notification.requestPermission();
         }
 
-        // SECURE LOGOUT HANDLER
+        // --- UPDATED: SECURE LOGOUT HANDLER WITH GPS ---
         async function handleSecureLogout() {
-            // 1. Tell Python to stop any active meeting/session timers NOW
-            await fetch('/prepare_logout', { method: 'POST' });
-            // 2. Go to Face Verify. Mode 'logout' ensures it goes to landing page AFTER scan.
-            window.location.href = '/verify-face?mode=logout';
+            // Get location before redirecting to ensure mismatch check works
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(async (position) => {
+                    const lat = position.coords.latitude;
+                    const lon = position.coords.longitude;
+                    
+                    // Stop any meeting timers in background
+                    await fetch('/prepare_logout', { method: 'POST' });
+                    
+                    // Redirect with coordinates to verify page
+                    window.location.href = `/verify-face?mode=logout&lat=${lat}&lon=${lon}`;
+                }, async (err) => {
+                    console.warn("GPS failed, logging out normally:", err);
+                    await fetch('/prepare_logout', { method: 'POST' });
+                    window.location.href = '/verify-face?mode=logout';
+                }, { enableHighAccuracy: true, timeout: 5000 });
+            } else {
+                window.location.href = '/verify-face?mode=logout';
+            }
         }
 
         function updatePersistentTimer() {
@@ -154,9 +169,7 @@
         }
 
         async function triggerSecurityAlert() {
-            // Record logout time in sheet automatically
             await fetch('/auto_logout_record', { method: 'POST' });
-
             document.getElementById('warningOverlay').style.display = 'flex';
 
             if (!flashInterval) {
@@ -165,7 +178,6 @@
                 }, 1000);
             }
 
-            // PERSISTENT NOTIFICATION (Works when minimized)
             if (Notification.permission === "granted") {
                 const n = new Notification("FaceAuth: SESSION EXPIRED", {
                     body: "Session expired! Please extend via Meeting or Re-verify face.",
