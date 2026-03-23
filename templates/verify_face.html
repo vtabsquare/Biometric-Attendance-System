@@ -37,56 +37,166 @@
         let detailedLocation = "Unknown District, India"; 
         let mapsUrl = "Location Hidden";
         
-        // --- NEW: Raw Coordinates for Math ---
+        // --- Raw Coordinates for Math ---
         let currentLat = null;
         let currentLon = null;
+        let gpsWatchId = null;
+        let gpsReady = false;
+        let gpsRetryCount = 0;
+        const MAX_GPS_RETRIES = 3;
 
         // Camera Initialization
         navigator.mediaDevices.getUserMedia({ video: true })
             .then(stream => { 
                 video.srcObject = stream; 
-                status.innerText = "Camera Ready. Press button to scan."; 
+                updateStatusIfReady();
             })
             .catch(err => { 
                 status.innerText = "Camera Error: Please allow camera access in browser settings."; 
                 status.style.color = "#ea4335";
             });
 
-        // Background Location Tracker
-        function getDetailedLocation() {
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(async (position) => {
-                    // Capture raw numbers for Python math
-                    currentLat = position.coords.latitude;
-                    currentLon = position.coords.longitude;
-                    
-                    mapsUrl = `https://www.google.com/maps?q=${currentLat},${currentLon}`;
-
-                    try {
-                        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${currentLat}&lon=${currentLon}`);
-                        const data = await res.json();
-                        const district = data.address.city || data.address.town || data.address.village || "District Not Found";
-                        const country = data.address.country || "India";
-                        detailedLocation = `${district}, ${country}`;
-                    } catch (e) {
-                        detailedLocation = "Location Shared";
-                    }
-                }, (err) => {
-                    console.error("Location Error:", err);
-                    status.innerText = "Please enable GPS/Location to continue.";
-                    status.style.color = "#ea4335";
-                }, { enableHighAccuracy: true });
+        let cameraReady = false;
+        function updateStatusIfReady() {
+            cameraReady = true;
+            if (gpsReady) {
+                status.innerText = "Camera & GPS Ready. Press button to scan.";
+                status.style.color = "#34a853";
+            } else {
+                status.innerText = "Camera Ready. Acquiring GPS...";
+                status.style.color = "#f4b400";
             }
         }
-        getDetailedLocation(); 
 
-        btn.onclick = () => {
-            if (!currentLat || !currentLon) {
-                status.innerText = "Waiting for GPS signal... Please wait a moment.";
-                status.style.color = "#f4b400";
+        // --- Reverse Geocode helper ---
+        async function reverseGeocode(lat, lon) {
+            try {
+                const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`);
+                const data = await res.json();
+                const district = data.address.city || data.address.town || data.address.village || "District Not Found";
+                const country = data.address.country || "India";
+                detailedLocation = `${district}, ${country}`;
+            } catch (e) {
+                detailedLocation = "Location Shared";
+            }
+        }
+
+        // --- GPS Tracking with watchPosition (continuous) ---
+        function startGPSTracking() {
+            if (!navigator.geolocation) {
+                status.innerText = "Geolocation not supported by your browser.";
+                status.style.color = "#ea4335";
                 return;
             }
 
+            // Clear any existing watch
+            if (gpsWatchId !== null) {
+                navigator.geolocation.clearWatch(gpsWatchId);
+            }
+
+            gpsWatchId = navigator.geolocation.watchPosition(
+                async (position) => {
+                    currentLat = position.coords.latitude;
+                    currentLon = position.coords.longitude;
+                    mapsUrl = `https://www.google.com/maps?q=${currentLat},${currentLon}`;
+                    gpsReady = true;
+                    gpsRetryCount = 0;
+
+                    reverseGeocode(currentLat, currentLon);
+
+                    if (cameraReady) {
+                        status.innerText = "Camera & GPS Ready. Press button to scan.";
+                        status.style.color = "#34a853";
+                    }
+                },
+                (err) => {
+                    console.error("GPS Error:", err);
+                    gpsRetryCount++;
+
+                    if (err.code === 1) { // PERMISSION_DENIED
+                        status.innerText = "Location permission denied. Please allow location access and refresh.";
+                        status.style.color = "#ea4335";
+                    } else if (err.code === 2) { // POSITION_UNAVAILABLE
+                        status.innerText = "GPS unavailable. Please enable location services.";
+                        status.style.color = "#ea4335";
+                    } else if (err.code === 3) { // TIMEOUT
+                        if (gpsRetryCount < MAX_GPS_RETRIES) {
+                            status.innerText = `GPS timeout. Retrying... (${gpsRetryCount}/${MAX_GPS_RETRIES})`;
+                            status.style.color = "#f4b400";
+                            // watchPosition will auto-retry, but we can also do a fallback
+                            fallbackGPS();
+                        } else {
+                            status.innerText = "GPS signal weak. Tap button to retry or refresh the page.";
+                            status.style.color = "#ea4335";
+                        }
+                    }
+                },
+                { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 }
+            );
+        }
+
+        // --- Fallback: try low-accuracy GPS if high-accuracy fails ---
+        function fallbackGPS() {
+            navigator.geolocation.getCurrentPosition(
+                async (position) => {
+                    currentLat = position.coords.latitude;
+                    currentLon = position.coords.longitude;
+                    mapsUrl = `https://www.google.com/maps?q=${currentLat},${currentLon}`;
+                    gpsReady = true;
+                    reverseGeocode(currentLat, currentLon);
+
+                    if (cameraReady) {
+                        status.innerText = "Camera & GPS Ready. Press button to scan.";
+                        status.style.color = "#34a853";
+                    }
+                },
+                () => {}, // silently fail, watchPosition will keep trying
+                { enableHighAccuracy: false, timeout: 10000, maximumAge: 60000 }
+            );
+        }
+
+        // Start GPS tracking immediately
+        startGPSTracking();
+
+        // --- Button Click Handler with GPS retry ---
+        btn.onclick = () => {
+            // If GPS not ready, retry and inform user
+            if (!currentLat || !currentLon) {
+                status.innerText = "Acquiring GPS signal... Please wait.";
+                status.style.color = "#f4b400";
+                btn.disabled = true;
+
+                // Try a fresh low-accuracy request as fallback
+                fallbackGPS();
+
+                // Also restart the watcher
+                startGPSTracking();
+
+                // Wait up to 8 seconds for GPS, then either proceed or show error
+                let waitCount = 0;
+                const gpsWaitInterval = setInterval(() => {
+                    waitCount++;
+                    if (currentLat && currentLon) {
+                        clearInterval(gpsWaitInterval);
+                        btn.disabled = false;
+                        // GPS acquired! Auto-trigger the verification
+                        doVerification();
+                    } else if (waitCount >= 16) { // 8 seconds (500ms intervals)
+                        clearInterval(gpsWaitInterval);
+                        btn.disabled = false;
+                        status.innerText = "Cannot acquire GPS. Please check location settings and try again.";
+                        status.style.color = "#ea4335";
+                    } else {
+                        status.innerText = `Acquiring GPS signal... (${Math.ceil(waitCount/2)}s)`;
+                    }
+                }, 500);
+                return;
+            }
+
+            doVerification();
+        };
+
+        function doVerification() {
             btn.disabled = true;
             status.style.color = "#5f6368";
             status.innerText = "Processing Face & Location...";
@@ -104,14 +214,22 @@
                 body: JSON.stringify({ 
                     image: imageData, 
                     mode: mode,
-                    lat: currentLat,           // SENT TO PYTHON
-                    lon: currentLon,           // SENT TO PYTHON
+                    lat: currentLat,
+                    lon: currentLon,
                     location: mapsUrl,
                     detailed_location: detailedLocation 
                 })
             })
-            .then(res => res.json())
+            .then(res => {
+                // Handle session expiry (server redirects to login)
+                if (res.redirected) {
+                    window.location.href = '/login';
+                    return null;
+                }
+                return res.json();
+            })
             .then(data => {
+                if (!data) return; // Redirected already
                 if (data.success) {
                     status.style.color = "#34a853";
                     status.innerText = "Verified! Redirecting...";
@@ -123,7 +241,13 @@
                 } else {
                     btn.disabled = false;
                     status.style.color = "#ea4335";
-                    status.innerText = data.message || "Face not recognized. Please try again.";
+                    // If session expired on backend
+                    if (data.message && data.message.toLowerCase().includes('session')) {
+                        status.innerText = "Session expired. Redirecting to login...";
+                        setTimeout(() => { window.location.href = '/login'; }, 2000);
+                    } else {
+                        status.innerText = data.message || "Face not recognized. Please try again.";
+                    }
                 }
             })
             .catch(err => {
@@ -131,7 +255,7 @@
                 status.style.color = "#ea4335";
                 status.innerText = "Server Error. Please check connection.";
             });
-        };
+        }
     </script>
 </body>
 </html>

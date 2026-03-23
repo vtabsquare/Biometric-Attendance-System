@@ -249,6 +249,8 @@ def verify_face():
 def process_verification():
     data = request.get_json()
     record_id = session.get('user_id')
+    if not record_id:
+        return jsonify({"success": False, "message": "Session expired. Please login again."})
     mode = data.get('mode', 'login')
     loc_text = data.get('detailed_location', 'Unknown')
     map_link = data.get('location', '#')
