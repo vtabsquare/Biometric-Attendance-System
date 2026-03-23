@@ -16,6 +16,7 @@ from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
 import pytz
+import jwt
 from dotenv import load_dotenv
 
 # --- Dataverse Service Layer ---
@@ -61,6 +62,7 @@ BREVO_API_KEY = os.getenv("BREVO_API_KEY")
 SENDER_EMAIL = os.getenv("SENDER_EMAIL")
 COMPANY_NAME = os.getenv("COMPANY_NAME")
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL") # Ensure this is in your .env
+JWT_SECRET = os.getenv("JWT_SECRET") # Shared secret for HR Tool JWTs
 
 # --- NEW: LOCATION MISMATCH HELPERS ---
 
@@ -166,6 +168,61 @@ def _generate_employee_id(email: str) -> str:
 def index(): 
     return render_template('landing.html')
 
+@app.route('/external-verify')
+def external_verify():
+    token = request.args.get('token')
+    if not token:
+        flash("Missing authentication token.", "error")
+        return redirect(url_for('login'))
+        
+    try:
+        if not JWT_SECRET:
+            print("ERROR: JWT_SECRET environment variable is not set!")
+            flash("Server configuration error.", "error")
+            return redirect(url_for('login'))
+            
+        # Decode the token (HS512 algorithm as requested)
+        decoded = jwt.decode(token, JWT_SECRET, algorithms=["HS512"])
+        emp_id = decoded.get('employee_id')
+        
+        if not emp_id:
+            flash("Invalid token payload.", "error")
+            return redirect(url_for('login'))
+            
+        # Verify user exists in our system
+        dv_user = get_user_by_employeeid(emp_id)
+        if not dv_user:
+            flash(f"User with Employee ID {emp_id} not found in FaceAuth system.", "error")
+            return redirect(url_for('login'))
+            
+        user = _norm_user(dv_user)
+        
+        # Check if they have a face registered
+        if not user.get('FaceEncoding'):
+            flash("Face not registered in FaceAuth. Please register first.", "error")
+            return redirect(url_for('login'))
+            
+        # Store verification context
+        session.clear()
+        session['user_id'] = user['record_id']
+        session['first_name'] = user['First Name']
+        session['employee_id'] = emp_id
+        session['external_auth'] = True
+        
+        return redirect(url_for('verify_face', mode='external_verify'))
+        
+    except jwt.ExpiredSignatureError:
+        flash("Authentication token has expired.", "error")
+        return redirect(url_for('login'))
+    except jwt.InvalidTokenError as e:
+        print(f"JWT Decode Error: {e}")
+        flash("Invalid authentication token.", "error")
+        return redirect(url_for('login'))
+    except Exception as e:
+        print(f"External verify error: {e}")
+        flash("An unexpected error occurred.", "error")
+        return redirect(url_for('login'))
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -241,7 +298,8 @@ def process_registration():
 
 @app.route('/verify-face')
 def verify_face():
-    if 'user_id' not in session: return redirect(url_for('login'))
+    if 'user_id' not in session and not session.get('external_auth'): 
+        return redirect(url_for('login'))
     mode = request.args.get('mode', 'login') 
     return render_template('verify_face.html', name=session.get('first_name'), mode=mode)
 
@@ -249,7 +307,7 @@ def verify_face():
 def process_verification():
     data = request.get_json()
     record_id = session.get('user_id')
-    if not record_id:
+    if not record_id and not session.get('external_auth'):
         return jsonify({"success": False, "message": "Session expired. Please login again."})
     mode = data.get('mode', 'login')
     loc_text = data.get('detailed_location', 'Unknown')
@@ -275,7 +333,28 @@ def process_verification():
             today = now.strftime("%Y-%m-%d")
             cur_time_iso = now.strftime("%Y-%m-%dT%H:%M:%SZ")
             
-            if mode == 'logout':
+            if session.get('external_auth'):
+                emp_id = session.get('employee_id')
+                
+                # Fetch new token from HR portal
+                hr_api_url = "https://officeportal.vtabsquare.com/api/auth/face-verified"
+                hr_response = requests.post(hr_api_url, json={"employee_id": emp_id})
+                
+                try:
+                    hr_data = hr_response.json()
+                    new_token = hr_data.get('token')
+                except:
+                    new_token = None
+                    
+                session.clear() # Clean up session post-auth
+
+                return jsonify({
+                    "success": True, 
+                    "external": True, 
+                    "redirect_url": f"https://officeportal.vtabsquare.com/dashboard?token={new_token}"
+                })
+            
+            elif mode == 'logout':
                 # --- LOCATION MISMATCH CHECK ---
                 open_rec = find_open_attendance(user['First Name'], today)
                 if open_rec:

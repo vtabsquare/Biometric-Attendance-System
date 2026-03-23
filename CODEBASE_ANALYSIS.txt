@@ -1,0 +1,1404 @@
+================================================================================
+    BIOMETRIC FACE RECOGNITION ATTENDANCE SYSTEM — COMPLETE CODEBASE ANALYSIS
+================================================================================
+    Application: FaceAuth — Biometric Attendance System
+    URL: https://biometric-attendance-system-tsca.onrender.com
+    Tech Stack: Python (Flask) + HTML/CSS/JS + Microsoft Dataverse + Brevo Email
+    Database: Microsoft Dataverse (OData REST API)
+    Hosting: Render.com
+    Date: 23-March-2026
+================================================================================
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                        SYSTEM ARCHITECTURE OVERVIEW                         ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+    ┌─────────────┐     ┌──────────────┐     ┌──────────────────┐
+    │  Browser    │────>│  Flask App   │────>│  Dataverse API   │
+    │  (Frontend) │<────│  (app.py)    │<────│  (Cloud DB)      │
+    └─────────────┘     └──────────────┘     └──────────────────┘
+          │                    │
+          │                    ├── dataverse_service.py (Business Logic Layer)
+          │                    └── dataverse_helper.py  (Low-Level API Layer)
+          │
+          ├── templates/landing.html
+          ├── templates/login.html
+          ├── templates/register_face.html
+          ├── templates/verify_face.html
+          ├── templates/employee_dashboard.html
+          ├── templates/admin_dashboard.html
+          ├── templates/reset_password.html
+          ├── templates/forgot_password.html
+          └── templates/success.html
+
+The system follows a 3-layer architecture:
+    Layer 1: Frontend (HTML/CSS/JS templates with Jinja2)
+    Layer 2: Application (Flask routes in app.py)
+    Layer 3: Data Access (dataverse_service.py → dataverse_helper.py → Dataverse API)
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                         ENVIRONMENT CONFIGURATION                           ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+File: .env
+Purpose: Stores all sensitive configuration as environment variables.
+
+Variables:
+    BREVO_API_KEY       → API key for Brevo transactional email service
+    FLASK_SECRET        → Secret key for Flask session encryption
+    SENDER_EMAIL        → "From" address for outbound emails
+    COMPANY_NAME        → Company name used in email templates
+    ADMIN_EMAIL         → Admin's email for security alert notifications
+    TENANT_ID           → Azure AD Tenant ID for Dataverse authentication
+    CLIENT_ID           → Azure AD App Registration Client ID
+    CLIENT_SECRET       → Azure AD App Registration Client Secret
+    RESOURCE            → Dataverse environment URL (e.g., https://orgXXX.api.crm8.dynamics.com)
+    BASE_URL            → Same as RESOURCE (used for API base)
+    DATAVERSE_API       → API path suffix (/api/data/v9.2)
+    GOOGLE_SHEET_NAME   → Legacy reference (no longer used after migration to Dataverse)
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  MODULE 1: dataverse_helper.py — LOW-LEVEL DATAVERSE API LAYER (163 lines) ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+PURPOSE:
+    This module provides raw CRUD operations against Microsoft Dataverse via 
+    its OData REST API. It handles authentication (OAuth2 via MSAL), token 
+    caching, request retries, and HTTP request construction.
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 1: INITIALIZATION & CONFIGURATION (Lines 1–24)
+────────────────────────────────────────────────────────────────────────────────
+
+    - Loads environment variables from .env using python-dotenv
+    - Reads: TENANT_ID, CLIENT_ID, CLIENT_SECRET, RESOURCE
+    - Constructs Azure AD authority URL
+    - Constructs OAuth2 scope for Dataverse access
+    - Creates a shared MSAL ConfidentialClientApplication instance
+      → This object caches tokens automatically so we don't request a new
+        token for every API call
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 2: RETRY DECORATOR (Lines 27–46)
+────────────────────────────────────────────────────────────────────────────────
+
+Function: retry_on_failure(max_retries=3, backoff_factor=1)
+    
+    Type: Decorator (wraps other functions)
+    Purpose: Adds automatic retry with exponential backoff to any function
+    
+    Logic:
+        - Attempts the function up to max_retries times
+        - On failure, waits: backoff_factor × 2^attempt seconds
+        - Example: 1s → 2s → 4s between retries
+        - Logs each retry with function name and error message
+        - If all retries exhausted, raises the last exception
+
+    Applied to: get_access_token, create_record, get_record, query_records,
+                update_record, delete_record
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 3: TOKEN MANAGEMENT (Lines 49–75)
+────────────────────────────────────────────────────────────────────────────────
+
+Function: get_access_token()
+    
+    Purpose: Obtains a valid OAuth2 bearer token for Dataverse API calls
+    Decorated with: @retry_on_failure(max_retries=3)
+    
+    Logic:
+        1. Try acquire_token_silent() first (returns cached token if valid)
+        2. If no cached token, call acquire_token_for_client() (client credentials flow)
+        3. If "access_token" key exists in result → return token string
+        4. Otherwise → raise Exception with the entire result (debugging)
+
+Function: _headers(token, content_type=True)
+
+    Purpose: Builds standard HTTP headers for Dataverse OData API calls
+    Returns dict with:
+        - Authorization: Bearer <token>
+        - OData-MaxVersion: 4.0
+        - OData-Version: 4.0
+        - Accept: application/json
+        - Content-Type: application/json (only if content_type=True)
+        - Prefer: return=representation (only if content_type=True)
+          → "return=representation" tells Dataverse to return the created/updated
+            record in the response body
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 4: CRUD FUNCTIONS (Lines 78–163)
+────────────────────────────────────────────────────────────────────────────────
+
+Function: create_record(entity_name, data)
+
+    HTTP Method: POST
+    URL: {RESOURCE}/api/data/v9.2/{entity_name}
+    Body: JSON dict of field name → value
+    Success: 200 or 201 → returns response.json() (the created record)
+    Failure: raises Exception with status code and error text
+    Retry: Yes (3 attempts)
+
+Function: get_record(entity_name, record_id)
+
+    HTTP Method: GET
+    URL: {RESOURCE}/api/data/v9.2/{entity_name}({record_id})
+    Headers: No Content-Type (it's a GET)
+    Success: 200 → returns response.json() (the full record)
+    Failure: raises Exception
+    Retry: Yes (3 attempts)
+
+Function: query_records(entity_name, filter_query, select, orderby, top)
+
+    HTTP Method: GET
+    URL: {RESOURCE}/api/data/v9.2/{entity_name}?$filter=...&$select=...&$orderby=...&$top=...
+    
+    Parameters (all optional):
+        filter_query → OData $filter expression (e.g., "crc6f_email eq 'test@x.com'")
+        select       → OData $select fields to return
+        orderby      → OData $orderby for sorting
+        top          → OData $top to limit results
+    
+    Success: 200 → returns response.json()["value"] (list of records)
+    Failure: raises Exception
+    Retry: Yes (3 attempts)
+
+Function: update_record(entity_name, record_id, data)
+
+    HTTP Method: PATCH
+    URL: {RESOURCE}/api/data/v9.2/{entity_name}({record_id})
+    Headers: If-Match: * (optimistic concurrency), no Prefer header
+    Body: JSON dict of fields to update
+    Success: 204 → returns True
+    Failure: raises Exception
+    Retry: Yes (3 attempts)
+
+Function: delete_record(entity_name, record_id)
+
+    HTTP Method: DELETE
+    URL: {RESOURCE}/api/data/v9.2/{entity_name}({record_id})
+    Headers: Minimal (Auth + OData version only)
+    Success: 204 → returns True
+    Failure: raises Exception
+    Retry: Yes (3 attempts)
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  MODULE 2: dataverse_service.py — BUSINESS LOGIC LAYER (211 lines)         ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+PURPOSE:
+    This module provides high-level, domain-specific functions for managing
+    Users and Attendance records. It abstracts away Dataverse field names and
+    table names from the main app.
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 1: TABLE & FIELD CONSTANTS (Lines 9–15)
+────────────────────────────────────────────────────────────────────────────────
+
+    USERS_TABLE           = "crc6f_faceappuserses"
+    USERS_ID_FIELD        = "crc6f_faceappusersid"
+    ATTENDANCE_TABLE      = "crc6f_hr_faceappattendances"
+    ATTENDANCE_ID_FIELD   = "crc6f_hr_faceappattendanceid"
+
+    These constants map Dataverse logical table/field names used throughout
+    the application.
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 2: USER FUNCTIONS (Lines 18–109)
+────────────────────────────────────────────────────────────────────────────────
+
+Function: get_user_by_email(email)
+    Queries USERS_TABLE with filter: crc6f_email eq '<email>'
+    Returns: First matching record dict, or None
+    Used by: Login route to find user by email
+
+Function: get_user_by_id(record_id)
+    Direct GET by Dataverse GUID
+    Returns: User record dict
+    Used by: process_verification, delete_employee, start_meeting
+
+Function: get_user_by_employeeid(employee_id)
+    Queries USERS_TABLE with filter: crc6f_employeeid eq '<employee_id>'
+    Returns: First matching record dict, or None
+
+Function: create_user(first_name, last_name, email, hashed_password, role, employee_id, status=True)
+    Creates a new user record in Dataverse
+    Fields set:
+        crc6f_firstname, crc6f_lastname, crc6f_email (lowercased),
+        crc6f_password (hashed), crc6f_role, crc6f_employeeid,
+        crc6f_status (boolean), crc6f_faceencoding1 (empty string)
+    Returns: Created record dict (includes GUID)
+    Used by: add_employee route
+
+Function: update_user_face_encoding(record_id, encoding_json)
+    Updates crc6f_faceencoding1 field with JSON string of 128D face vector
+    Used by: process_registration route
+
+Function: update_user_password(record_id, hashed_password, status=False)
+    Updates crc6f_password and crc6f_status (resets must-change flag)
+    Used by: update_password route
+
+Function: update_user_fields(record_id, fields_dict)
+    General-purpose update for any user fields
+    Used for: Saving GPS coordinates
+
+Function: get_all_employees()
+    Queries all users where crc6f_role eq 'employee'
+    Returns: List of user record dicts
+    Used by: admin_dashboard route
+
+Function: delete_user(record_id)
+    Deletes user by GUID
+    Used by: delete_employee route
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 3: ATTENDANCE FUNCTIONS (Lines 112–211)
+────────────────────────────────────────────────────────────────────────────────
+
+Function: create_attendance(first_name, last_name, date_str, login_time, status,
+                            login_location, employee_id, logout_time="", logout_location="")
+    Creates a new attendance record
+    Required fields: firstname, lastname, date, logintime, status, loginlocation, employeeid
+    Optional fields: logouttime, logoutlocation (only set if non-empty)
+    Used by: process_verification (login mode), start_meeting
+
+Function: find_open_attendance(first_name, date_str)
+    Finds an attendance record where:
+        firstname matches AND date matches AND logouttime is null
+    Returns: First matching record or None
+    Purpose: Find the "currently active" session for an employee
+    Used by: process_verification (logout mode), auto_logout_record, start_meeting
+
+Function: find_open_meeting_attendance(first_name, date_str)
+    Same as above but also filters: status eq 'In Meeting'
+    Purpose: Find active meeting record to close it
+    Used by: prepare_logout route
+
+Function: update_attendance(record_id, updates)
+    General-purpose PATCH on attendance record
+    Used by: All logout/meeting flows
+
+Function: get_attendance_by_date(date_str)
+    Gets all attendance records for a given date
+    Used by: admin_dashboard (shows today's logs for all employees)
+
+Function: get_attendance_by_name_and_date(first_name, date_str)
+    Gets attendance records for a specific employee on a given date
+    Used by: employee_dashboard (shows the logged-in user's today logs)
+
+Function: delete_attendance_by_employee(first_name)
+    Deletes ALL attendance records matching a firstname
+    Used by: delete_employee (cleanup before deleting user)
+    Process: Queries all records → loops → deletes each one
+    Returns: Count of deleted records
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  MODULE 3: app.py — MAIN FLASK APPLICATION (525 lines)                     ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+PURPOSE:
+    The core application module. Contains all Flask routes, face recognition
+    processing, session management, email sending, and location logic.
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 1: IMPORTS & INITIALIZATION (Lines 1–63)
+────────────────────────────────────────────────────────────────────────────────
+
+Key Libraries:
+    - flask: Web framework (routes, sessions, templates, JSON responses)
+    - flask_cors: Cross-Origin Resource Sharing
+    - cv2 (OpenCV): Image processing (decode, resize, color conversion)
+    - face_recognition: Face detection and 128D encoding generation
+    - numpy: Array operations for face encoding comparison
+    - werkzeug.security: Password hashing (generate_password_hash, check_password_hash)
+    - pytz: Timezone conversion (Asia/Kolkata for IST)
+    - msal (via dataverse_helper): Microsoft authentication
+
+DLIB Patch (Lines 42–52):
+    - Attempts to import dlib (required by face_recognition)
+    - If dlib fails, tries dlib_bin as a fallback (for Render.com compatibility)
+    - Disables CUDA to prevent GPU memory issues on Render's free tier
+
+Flask App Configuration:
+    - Secret key loaded from .env
+    - CORS enabled for all routes
+    - Email config loaded: BREVO_API_KEY, SENDER_EMAIL, COMPANY_NAME, ADMIN_EMAIL
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 2: LOCATION MISMATCH HELPERS (Lines 65–97)
+────────────────────────────────────────────────────────────────────────────────
+
+Function: get_distance_meters(lat1, lon1, lat2, lon2)
+    
+    Purpose: Calculates straight-line distance between two GPS coordinates
+    Algorithm: Haversine formula
+    Input: Four coordinates (latitude/longitude for two points)
+    Output: Distance in meters (float)
+    Error handling: Returns 0 if any input is None or conversion fails
+    
+    Used by: process_verification (logout mode) to detect if login and
+    logout locations are >500 meters apart
+
+Function: send_location_alert_email(user_email, name, dist, login_pos, logout_pos)
+    
+    Purpose: Sends a security alert email to ADMIN when location mismatch detected
+    Trigger: Distance between login and logout > 500 meters
+    Email content:
+        - Employee name and email
+        - Distance mismatch in meters
+        - Google Maps links for both login and logout positions
+    Sent to: ADMIN_EMAIL (not the employee)
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 3: NORMALIZATION HELPERS (Lines 99–135)
+────────────────────────────────────────────────────────────────────────────────
+
+Function: _norm_user(dv_record)
+    
+    Purpose: Converts a raw Dataverse user record (with crc6f_ prefixed fields)
+    into a clean dictionary with human-readable keys
+    
+    Input:  {"crc6f_firstname": "John", "crc6f_email": "john@x.com", ...}
+    Output: {"First Name": "John", "Email": "john@x.com", "record_id": "...", ...}
+    
+    Fields mapped:
+        crc6f_firstname     → First Name
+        crc6f_lastname      → Last Name
+        crc6f_email          → Email
+        crc6f_password       → Password
+        crc6f_role           → Role
+        crc6f_faceencoding1  → FaceEncoding
+        crc6f_status         → Status
+        crc6f_employeeid     → EmployeeID
+        USERS_ID_FIELD       → record_id
+
+Function: _norm_attendance(dv_record)
+    
+    Purpose: Same normalization but for attendance records
+    Special: Contains inner function _parse_dt() which extracts HH:MM:SS
+             from ISO datetime strings like "2026-03-20T19:28:31Z"
+    
+    Fields mapped:
+        crc6f_firstname       → First Name
+        crc6f_lastname        → Last Name
+        crc6f_date            → Date
+        crc6f_logintime       → Login Time (parsed to HH:MM:SS)
+        crc6f_logouttime      → Logout Time (parsed to HH:MM:SS)
+        crc6f_status          → Status
+        crc6f_loginlocation   → Login Location
+        crc6f_logoutlocation  → Logout Location
+        ATTENDANCE_ID_FIELD   → record_id
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 4: UTILITY HELPERS (Lines 137–161)
+────────────────────────────────────────────────────────────────────────────────
+
+Function: is_password_strong(password)
+    
+    Validates password strength:
+        ✓ Minimum 8 characters
+        ✓ At least 1 uppercase letter (A-Z)
+        ✓ At least 1 digit (0-9)
+        ✓ At least 1 special character (@$!%*?&#)
+    Returns: True/False
+
+Function: send_email_via_brevo(to_email, subject, html_content)
+    
+    Sends a transactional email via Brevo (formerly Sendinblue) SMTP API
+    Endpoint: https://api.brevo.com/v3/smtp/email
+    Payload: sender info, recipient, subject, HTML body
+    Returns: True if status code is 200/201/202, False otherwise
+    Error handling: Catches all exceptions and returns False
+
+Function: _generate_employee_id(email)
+    
+    Generates employee ID from email by lowercasing it
+    Example: "John@Company.com" → "john@company.com"
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 5: AUTHENTICATION ROUTES (Lines 163–217)
+────────────────────────────────────────────────────────────────────────────────
+
+ROUTE: GET /
+Function: index()
+    Renders: landing.html
+    Purpose: Homepage / marketing page
+
+ROUTE: GET + POST /login
+Function: login()
+    
+    GET: Renders login.html form
+    
+    POST Flow:
+        1. Extract email (lowercase, stripped) and password from form
+        2. Query Dataverse for user by email
+        3. If user not found → flash "User not found" error
+        4. Normalize the Dataverse record via _norm_user()
+        5. Verify password using check_password_hash()
+        6. If password matches:
+            a. Clear existing session
+            b. Set session.permanent = True
+            c. Set session lifetime to 1 minute (TESTING — should be 120 mins)
+            d. Store in session:
+                - user_id (Dataverse GUID)
+                - first_name, last_name, employee_id
+                - role (lowercased)
+                - verified = False (not yet face-verified)
+                - last_auth = current timestamp
+            e. If user.Status is True → redirect to reset_password_page
+               (means they still have a temp password that needs changing)
+            f. If role is 'admin' → set verified=True, go to admin_dashboard
+               (admins skip face verification)
+            g. If no FaceEncoding stored → flash error, redirect to login
+            h. Otherwise → redirect to verify_face page
+        7. If password doesn't match → flash "Invalid credentials"
+
+ROUTE: GET /reset-password
+Function: reset_password_page()
+    Renders: reset_password.html
+    Purpose: Forced password change for new employees
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 6: FACE PROCESSING ROUTES (Lines 219–327)
+────────────────────────────────────────────────────────────────────────────────
+
+ROUTE: GET /register_face/<record_id>
+Function: register_face(record_id)
+    
+    Purpose: Serves the face registration camera page
+    Flow:
+        1. Stores record_id in session as 'registering_id'
+        2. Renders register_face.html with user_id context
+    Access: Via email link sent during employee creation
+
+ROUTE: POST /process_registration
+Function: process_registration()
+    
+    Purpose: Receives a webcam snapshot and extracts face encoding
+    Flow:
+        1. Get record_id from session ('registering_id')
+        2. If no session → return error JSON
+        3. Decode base64 image from POST body
+        4. Convert to OpenCV image (BGR format)
+        5. Resize to 25% for faster processing
+        6. Convert BGR → RGB (face_recognition expects RGB)
+        7. Extract face encodings (128-dimensional vector)
+        8. If face found:
+            a. Convert encoding to JSON string
+            b. Save to Dataverse via update_user_face_encoding()
+            c. Return success JSON
+        9. If no face detected → return error JSON
+    
+    Image processing pipeline:
+        base64 → bytes → numpy array → cv2 decode → resize(0.25) → BGR2RGB → face_encodings
+
+ROUTE: GET /verify-face
+Function: verify_face()
+    
+    Purpose: Serves the face verification camera page
+    Guard: Requires 'user_id' in session (redirects to login if not)
+    Query params: mode=login (default) or mode=logout
+    Renders: verify_face.html with user's name and mode
+
+ROUTE: POST /process_verification
+Function: process_verification()
+    
+    Purpose: Core face verification + attendance logging
+    Guard: Returns JSON error if session has no 'user_id'
+    
+    Input (JSON body):
+        - image: base64 JPEG from webcam
+        - mode: "login" or "logout"
+        - lat, lon: GPS coordinates
+        - location: Google Maps URL
+        - detailed_location: Reverse-geocoded location text
+    
+    Flow:
+        1. Build location string: "{detailed_location} | {maps_url}"
+        2. Fetch user from Dataverse by record_id
+        3. Load stored face encoding from user record
+        4. Process submitted image (same pipeline as registration)
+        5. Compare live encoding against stored encoding:
+            - Tolerance: 0.5 (lower = stricter)
+            - Uses face_recognition.compare_faces()
+        
+        6. IF FACE MATCHES:
+        
+            Mode = "logout":
+                a. Find open attendance record for today
+                b. Extract login coordinates from stored login location
+                c. Calculate distance between login and logout coordinates
+                d. If distance > 500 meters → send location alert email to admin
+                e. Update attendance: set logout time, status="Present", logout location
+                f. Clear session
+                g. Return redirect to "/"
+            
+            Mode = "login":
+                a. Create new attendance record with:
+                    - first_name, last_name, date, login_time
+                    - status="Present", login_location, employee_id
+                b. Update session: verified=True, last_auth=current time
+                c. Return redirect to "/employee/dashboard"
+        
+        7. IF FACE DOESN'T MATCH → return "Face not recognized" error
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 7: SESSION MANAGEMENT ROUTES (Lines 329–414)
+────────────────────────────────────────────────────────────────────────────────
+
+ROUTE: POST /prepare_logout
+Function: prepare_logout()
+    
+    Purpose: Close any open meeting attendance before secure logout
+    Guard: Requires 'user_id' in session
+    Flow:
+        1. Find open meeting attendance record for today
+        2. If found → set logouttime to current time
+        3. Return success JSON
+
+ROUTE: POST /auto_logout_record
+Function: auto_logout_record()
+    
+    Purpose: Record logout when session expires (automatic timeout)
+    Guard: Requires 'user_id' in session
+    
+    Flow:
+        1. Parse location data from JSON body (lat, lon, detailed_location, location)
+        2. Build location string same as secure logout
+        3. Find open attendance for today
+        4. If found → update with:
+            - logouttime = current time
+            - status = "Logged Out (Timeout)"
+            - logoutlocation = location string (if GPS was available)
+    
+    NOTE: This is called by the frontend JavaScript when session expiry 
+    notification fires. The frontend captures GPS before calling this.
+
+ROUTE: POST /start_meeting
+Function: start_meeting()
+    
+    Purpose: Extend session and log a meeting period
+    Guard: Requires 'user_id' in session
+    Input: duration (minutes, from popup dropdown)
+    
+    Flow:
+        1. Fetch user from Dataverse
+        2. Find current open attendance record
+        3. If found → close it with status "Transition to Meeting"
+        4. Create new attendance record with:
+            - status = "In Meeting"
+            - login_location = "Meeting Popup"
+            - logout_time = start_time + duration (pre-set)
+        5. Extend Flask session lifetime to match meeting duration
+        6. Update last_auth timestamp
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 8: DASHBOARD ROUTES (Lines 416–445)
+────────────────────────────────────────────────────────────────────────────────
+
+ROUTE: GET /admin/dashboard
+Function: admin_dashboard()
+    
+    Guard: session role must be 'admin'
+    Data loaded:
+        - All employees from Dataverse
+        - All attendance records for today
+    Processing:
+        - Normalizes all records
+        - Attaches each employee's logs (matched by First Name)
+    Renders: admin_dashboard.html with employees list
+
+ROUTE: GET /employee/dashboard
+Function: employee_dashboard()
+    
+    Guard: user_id in session AND verified=True
+    Data loaded:
+        - Today's attendance records for the logged-in user
+    Processing:
+        - Normalizes and reverses (most recent first)
+    Renders: employee_dashboard.html with name and records
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 9: EMPLOYEE MANAGEMENT ROUTES (Lines 447–521)
+────────────────────────────────────────────────────────────────────────────────
+
+ROUTE: POST /add_employee
+Function: add_employee()
+    
+    Guard: Admin only
+    Flow:
+        1. Extract first_name, last_name, email from form
+        2. Generate random 8-char temporary password
+        3. Create user in Dataverse with:
+            - Hashed temp password
+            - Role = 'employee'
+            - Status = True (must change password)
+            - employee_id = lowercased email
+        4. Build face registration URL using new record's GUID
+        5. Send welcome email via Brevo with:
+            - Temp password
+            - Face registration link
+        6. Flash success message
+    Redirects: back to admin_dashboard
+
+ROUTE: GET /delete_employee/<record_id>
+Function: delete_employee(record_id)
+    
+    Guard: Admin only
+    Flow:
+        1. Fetch user from Dataverse by record_id
+        2. Get first name for attendance matching
+        3. Delete all attendance records for that employee
+        4. Delete the user record itself
+        5. Flash success message
+    Redirects: back to admin_dashboard
+
+ROUTE: POST /update_password
+Function: update_password()
+    
+    Guard: user_id in session
+    Flow:
+        1. Get new password from form
+        2. Validate strength via is_password_strong()
+        3. If weak → flash error, redirect to reset_password_page
+        4. Hash the new password
+        5. Update in Dataverse: set new password, set status=False
+           (status=False means "password has been changed")
+        6. Flash success, redirect to login
+
+ROUTE: GET /logout
+Function: logout()
+    
+    Clears session entirely, redirects to landing page
+
+────────────────────────────────────────────────────────────────────────────────
+SECTION 10: APP STARTUP (Lines 523–525)
+────────────────────────────────────────────────────────────────────────────────
+
+    - Reads PORT from environment (default 10000)
+    - Runs Flask on 0.0.0.0:{port} (accessible externally)
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  PAGE 1: landing.html — LANDING / HOMEPAGE (78 lines)                      ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+PURPOSE: Marketing/welcome page shown at the root URL "/"
+
+VISUAL DESIGN:
+    - Centered hero layout with large heading
+    - Radial gradient background (blue → white)
+    - Decorative blurred "blob" shapes (CSS filter: blur(60px))
+    - FaceAuth logo (top-left corner)
+    - Badge: "NEXT-GEN BIOMETRICS"
+    - Heading: "Biometric Attendance"
+    - Subtext: Description of the system
+    - CTA button: "Get Started Now →" → links to /login
+    - Footer: © 2026 FaceAuth Inc.
+
+LINKED CSS: static/css/style.css (with cache-bust version parameter)
+
+JAVASCRIPT: None
+
+ROUTE SERVED BY: index() → GET /
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  PAGE 2: login.html — LOGIN PAGE (60 lines)                                ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+PURPOSE: Email + password login form
+
+VISUAL DESIGN:
+    - Centered auth card with shield icon
+    - Title: "FaceAuth Portal"
+    - Subtitle: "Sign in to your workspace"
+    - Flash messages displayed (success=green, error=red)
+    - Email input field
+    - Password input field with toggle visibility button (eye icon)
+    - "FORGOT?" link → /forgot-password
+    - Submit button: "Sign In →"
+
+FORM ACTION: POST to /login (hardcoded to Render URL)
+
+JAVASCRIPT:
+    Function: toggle(id)
+        Toggles password input between type="password" and type="text"
+        Used for: Show/hide password
+
+ROUTE SERVED BY: login() → GET,POST /login
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  PAGE 3: register_face.html — FACE REGISTRATION (66 lines)                 ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+PURPOSE: Webcam-based face registration for new employees
+
+VISUAL DESIGN:
+    - Centered camera container card
+    - Title: "Face Registration"
+    - Instruction: "Position your face in the center and click capture"
+    - Live video stream (webcam)
+    - "Capture & Register" button
+    - Hidden canvas element (for capturing frame)
+    - Status text: "Waiting for camera..."
+
+JAVASCRIPT LOGIC:
+
+    1. CAMERA INITIALIZATION:
+        - Calls navigator.mediaDevices.getUserMedia({ video: true })
+        - On success → sets video source, updates status to "Camera Ready"
+        - On error → shows "Error: Camera access denied"
+
+    2. CAPTURE BUTTON (onclick):
+        a. Sets status to "Processing..."
+        b. Draws current video frame to hidden canvas
+        c. Converts canvas to base64 JPEG (canvas.toDataURL)
+        d. POST to /process_registration with JSON body: { image: base64data }
+        e. On success:
+            - Status turns green: "Registration Successful! Redirecting..."
+            - After 2 seconds → redirect to login page (hardcoded Render URL)
+        f. On failure:
+            - Status turns red: "Failed to detect face. Try again."
+
+ROUTE SERVED BY: register_face(record_id) → GET /register_face/<record_id>
+ACCESS: Via email link sent to new employees
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  PAGE 4: verify_face.html — FACE VERIFICATION + GPS (195 lines)            ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+PURPOSE: Biometric face + GPS location verification for login and logout
+
+VISUAL DESIGN:
+    - Centered verification container
+    - Title: "Biometric Verification"
+    - Greeting: "Hello {name}, please scan your face to {mode}."
+    - Live video stream (webcam, mirrored via scaleX(-1))
+    - "Verify Identity & Location" button
+    - Status text with color-coded feedback
+
+JAVASCRIPT LOGIC:
+
+    STATE VARIABLES:
+        - detailedLocation: Reverse-geocoded location string
+        - mapsUrl: Google Maps URL with coordinates
+        - currentLat, currentLon: Raw GPS coordinates
+        - gpsWatchId: Geolocation watcher ID
+        - gpsReady: Boolean flag
+        - gpsRetryCount: Number of GPS failures
+        - MAX_GPS_RETRIES: 3
+        - cameraReady: Boolean flag
+
+    1. CAMERA INITIALIZATION:
+        - getUserMedia → on success: sets cameraReady, calls updateStatusIfReady()
+        - Shows "Camera Ready. Acquiring GPS..." or "Camera & GPS Ready"
+
+    2. GPS TRACKING (Continuous):
+        
+        Function: startGPSTracking()
+            - Uses navigator.geolocation.watchPosition() (not one-shot getCurrentPosition)
+            - On success: saves lat/lon, updates mapsUrl, calls reverseGeocode()
+            - On error:
+                - Code 1 (PERMISSION_DENIED): Shows error message
+                - Code 2 (POSITION_UNAVAILABLE): Shows error message
+                - Code 3 (TIMEOUT): Retries up to MAX_GPS_RETRIES, uses fallbackGPS()
+            - Options: enableHighAccuracy=true, timeout=15000ms, maximumAge=30000ms
+
+        Function: fallbackGPS()
+            - One-shot getCurrentPosition with LOW accuracy
+            - Options: enableHighAccuracy=false, timeout=10000ms, maximumAge=60000ms
+            - Purpose: Backup when high-accuracy GPS fails (uses WiFi/cell)
+
+        Function: reverseGeocode(lat, lon)
+            - Calls Nominatim OpenStreetMap reverse geocoding API
+            - Extracts: city/town/village + country
+            - Builds: "Thalavumalai, India" style location string
+
+    3. BUTTON CLICK HANDLER (btn.onclick):
+        
+        IF GPS NOT READY:
+            a. Disables button
+            b. Triggers fallbackGPS() and restarts startGPSTracking()
+            c. Starts 500ms interval checking for GPS (up to 8 seconds)
+            d. If GPS acquired within window → auto-triggers doVerification()
+            e. If timeout → shows error, re-enables button
+        
+        IF GPS READY:
+            → Calls doVerification() directly
+
+    4. VERIFICATION (doVerification):
+        a. Disables button, shows "Processing Face & Location..."
+        b. Captures video frame to canvas → base64 JPEG
+        c. POST to /process_verification with JSON:
+            { image, mode, lat, lon, location, detailed_location }
+        d. Response handling:
+            - If redirected (session expiry) → redirect to /login
+            - If success → green text "Verified! Redirecting..." → redirect
+            - If session expired message → "Session expired. Redirecting..."
+            - If face not recognized → red error text
+            - If network error → "Server Error"
+
+ROUTE SERVED BY: verify_face() → GET /verify-face?mode=login|logout
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  PAGE 5: employee_dashboard.html — EMPLOYEE DASHBOARD (220+ lines)         ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+PURPOSE: Logged-in employee's view showing session timer, attendance logs,
+         session expiry handling, and meeting extension
+
+VISUAL DESIGN:
+    - Sidebar: FaceAuth logo, "My Attendance" nav link, "Secure Logout →" link
+    - Main content: Welcome header with timer display
+    - Activity card: Table with Login Time, Logout Time, Status columns
+    - Warning overlay: Full-screen modal for session expiry
+
+LAYOUT:
+    - Fixed sidebar (240px wide)
+    - Main content area with 40px padding
+    - Timer display: Blue pill badge showing countdown
+
+WARNING OVERLAY (#warningOverlay):
+    - Hidden by default (display: none)
+    - Full-screen dark overlay with blur backdrop
+    - White card centered with:
+        - "Session Alert!" heading
+        - Large red countdown timer (00:00 when expired)
+        - Description text
+        - Meeting extension option:
+            - Radio button: "I am in a Meeting"
+            - Dropdown: 10 mins / 30 mins / 1 hour
+            - "Extend as Meeting" button
+        - OR separator
+        - "Continue Working?" section:
+            - "Verify Face & Login" button (green)
+        - "Logout & Exit" button (subtle)
+
+JAVASCRIPT LOGIC:
+
+    SESSION TIMER SYSTEM:
+        
+        Constants:
+            loginTime   = session.last_auth (Unix timestamp from Flask)
+            baseTime    = 60 seconds (TESTING — should be 7200 for production)
+            extraTime   = 0 (increases when meeting is extended)
+            
+        Notification System:
+            notificationInterval    = null (interval ID)
+            notificationCount       = 0
+            MAX_NOTIFICATIONS       = 5
+            NOTIFICATION_INTERVAL_MS = 300000 (5 minutes)
+
+    Function: updatePersistentTimer()
+        - Runs every 1 second (setInterval)
+        - Calculates: secondsRemaining = (baseTime + extraTime) - elapsed
+        - If remaining > 0 → shows "Next Scan: MM:SS"
+        - If remaining <= 0 → shows "Session Expired", triggers alert
+
+    Function: handleSecureLogout()
+        - Stops all repeated notifications
+        - Gets GPS position (high accuracy, 5s timeout)
+        - Calls /prepare_logout (closes meeting records)
+        - Redirects to /verify-face?mode=logout with lat/lon params
+        - If GPS fails → redirects without coordinates
+
+    Function: triggerSecurityAlert()
+        - CAPTURES GPS: Calls getLocationThen() to get current position
+        - RECORDS LOGOUT: POST to /auto_logout_record with GPS data
+        - SHOWS OVERLAY: Displays warning overlay modal
+        - TITLE FLASH: Alternates tab title between original and "⚠️ ACTION REQUIRED"
+        - NOTIFICATION: Fires first browser notification immediately
+        - REPEATS: Starts repeated notification system (5× every 5 min)
+
+    Function: getLocationThen(callback)
+        - Helper that wraps GPS + reverse geocoding
+        - Gets position → reverse geocodes → calls callback with (lat, lon, location, mapsUrl)
+        - If geolocation unavailable → callback(null, null, "Unknown", "#")
+
+    Function: fireNotification()
+        - Increments notificationCount
+        - Creates browser Notification with unique tag ("session-alert-1", etc.)
+        - Body shows: "Alert X/5" counter
+        - requireInteraction: true (notification stays until dismissed)
+        - onclick → focuses window, stops title flashing
+
+    Function: startRepeatedNotifications()
+        - Sets interval every 5 minutes
+        - Fires fireNotification() each interval
+        - Stops when count >= MAX_NOTIFICATIONS
+
+    Function: stopRepeatedNotifications()
+        - Clears notification interval
+        - Resets count to 0
+        - Clears title flashing interval
+        - Restores original document title
+
+    Function: goToVerifyFace()
+        - Stops all notifications
+        - Redirects to /verify-face?mode=login
+
+    Function: submitMeetingFromPopup()
+        - Reads selected duration from dropdown
+        - POST to /start_meeting with duration in minutes
+        - On success:
+            - Adds snooze time to extraTime
+            - Hides warning overlay
+            - Resets isWarningActive flag
+            - Stops all notifications
+            - Shows alert confirming extension
+
+ROUTE SERVED BY: employee_dashboard() → GET /employee/dashboard
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  PAGE 6: admin_dashboard.html — ADMIN DASHBOARD (246 lines)                ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+PURPOSE: Admin view for managing employees and viewing attendance
+
+VISUAL DESIGN:
+    - Fixed sidebar: FaceAuth logo, "Employees" nav, "Logout" link
+    - Main content: Scrollable area
+    - Header: "Admin Command Center" + "Connected to: Office_Attendance_System"
+    - "+ Add Employee" button (top right)
+    - Search bar with magnifying glass icon
+    - Flash messages (success=green, error=red)
+    - Employee table with 4 columns
+
+TABLE COLUMNS:
+    1. EMPLOYEE PROFILE (25% width):
+        - Full name (bold)
+        - Email (gray, small)
+        - Department (blue, tiny, uppercase)
+
+    2. ATTENDANCE LOGS (40% width):
+        - Scrollable area (max-height: 240px)
+        - For each log entry:
+            LOGIN section:
+                - "In: HH:MM:SS"
+                - If location = "Meeting Popup" → shows 🤝 MEETING
+                - If location contains "|" → splits into:
+                    - 📍 Location text
+                    - "View Exact Location →" link (blue, opens Google Maps)
+                - Otherwise → shows raw location
+            LOGOUT section (if exists):
+                - "Out: HH:MM:SS"
+                - Same location display logic as login
+            If no logout → shows "● SESSION ACTIVE" (green)
+        - If no logs → "No logs for today"
+
+    3. CURRENT STATUS (20% width):
+        Status pills:
+            - "In Meeting" → yellow blinking badge
+            - "Transition to Meeting" → yellow static badge
+            - Logged out (has logout time) → gray "Logged Out" badge
+            - Active (no logout time) → green "Present" badge
+            - No logs → gray "Offline" badge
+
+    4. ACTIONS (15% width):
+        - ✎ Edit button → opens edit modal
+        - 🗑 Delete button → confirmation dialog
+
+MODALS:
+    
+    ADD EMPLOYEE MODAL (#addModal):
+        - Form fields: First Name, Last Name, Email, Department (dropdown)
+        - Submit: POST to /add_employee
+        - Button: "Save & Send Invite"
+        - Cancel button to close
+
+    EDIT EMPLOYEE MODAL (#editModal):
+        - Pre-filled form: First Name, Last Name, Department
+        - Submit: POST to /edit_employee/<record_id>
+        - Button: "Update Profile"
+        - Cancel button to close
+
+JAVASCRIPT FUNCTIONS:
+
+    confirmDelete(id, name):
+        - Shows browser confirm() dialog with warning about permanent deletion
+        - If confirmed → navigates to /delete_employee/<id>
+
+    filterEmployees():
+        - Reads search input value
+        - Iterates all .employee-row elements
+        - Shows/hides rows based on text match (case-insensitive)
+
+    showAddModal() / hideAddModal():
+        - Toggle #addModal display
+
+    showEditModal(recordId, f, l, d):
+        - Pre-fills edit form fields
+        - Sets form action to /edit_employee/<recordId>
+        - Shows #editModal
+
+    hideEditModal():
+        - Hides #editModal
+
+ROUTE SERVED BY: admin_dashboard() → GET /admin/dashboard
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  PAGE 7: reset_password.html — PASSWORD RESET (146 lines)                  ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+PURPOSE: Force new employees to set a strong password on first login
+
+VISUAL DESIGN:
+    - Centered auth card
+    - Title: "New Password"
+    - Subtitle: "Choose a strong password to protect your account"
+    - Flash messages for errors
+    - Requirements box listing 4 rules
+    - Password input with toggle visibility (eye icon)
+    - Password strength meter (animated bar)
+    - Strength label: Weak/Medium/Strong
+    - Confirm password input with toggle visibility
+    - "Update Password →" submit button
+
+PASSWORD RULES (displayed dynamically):
+    Each rule item changes color to green when satisfied:
+        - Min 8 characters
+        - 1 Uppercase (A-Z)
+        - 1 Number (0-9)
+        - 1 Special character (@$!%*?&#)
+
+JAVASCRIPT FUNCTIONS:
+
+    toggleVisibility(id, icon):
+        - Toggles between password/text input type
+        - Swaps eye/eye-slash icon
+
+    checkStrength(password):
+        - Called on every keystroke (oninput)
+        - Checks 4 rules individually
+        - Marks each rule list item as valid (green) or invalid
+        - Counts matched rules × 25 = strength percentage
+        - Updates strength meter bar:
+            - 0-25%: Red → "Weak"
+            - 26-75%: Yellow → "Medium"
+            - 76-100%: Green → "Strong"
+
+    validatePasswords():
+        - Called on form submit
+        - Checks password === confirm_password (match check)
+        - Validates against regex: ^(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#]).{8,}$
+        - Returns false (prevents submit) if either check fails
+
+FORM ACTION: POST to /update_password
+ROUTE SERVED BY: reset_password_page() → GET /reset-password
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  PAGE 8: forgot_password.html — FORGOT PASSWORD / OTP FLOW (135 lines)     ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+PURPOSE: Self-service password recovery via email OTP
+
+VISUAL DESIGN:
+    - Centered auth card with email icon
+    - Title changes between steps: "Forgot password?" → "Verify Code"
+    - Two-step process (step-email and step-otp)
+    - Step 1: Email input + "Send OTP →" button
+    - Step 2: 6 individual OTP digit inputs + "Verify & Proceed" button
+    - "Resend" link and "← Back to login" link
+
+STEP 1 — EMAIL ENTRY (#step-email):
+    - User enters their work email
+    - Clicks "Send OTP →"
+    - Button changes to "Sending..." while processing
+
+STEP 2 — OTP VERIFICATION (#step-otp):
+    - 6 separate single-digit input fields
+    - Auto-focus moves to next field on digit entry
+    - Backspace moves to previous field
+    - "Verify & Proceed" button collects all 6 digits
+
+JAVASCRIPT FUNCTIONS:
+
+    OTP Input Navigation:
+        - keyup event listener on each .otp-input
+        - If digit (0-9) → focus next input
+        - If Backspace → focus previous input
+
+    handleSendOTP():
+        - Validates email is not empty
+        - POST to /send-otp with JSON: { email }
+        - On success:
+            - Hides step-email, shows step-otp
+            - Updates title and description
+            - Focuses first OTP input
+        - On failure → alert with error message
+
+    handleVerifyOTP():
+        - Collects all 6 OTP digits into single string
+        - Validates length = 6
+        - POST to /verify-otp with JSON: { email, otp }
+        - On success → redirect to reset_password page
+        - On failure → alert with error, re-enable button
+
+NOTE: The backend routes /send-otp and /verify-otp are not defined in the 
+current app.py. This page exists but the forgot-password flow may need 
+those routes to be implemented.
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  PAGE 9: success.html — REGISTRATION SUCCESS (20 lines)                    ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+PURPOSE: Confirmation page after successful face registration
+
+VISUAL DESIGN:
+    - Centered auth card
+    - Green circle with checkmark (✔)
+    - Heading: "Registration Complete!"
+    - Text: "Your biometric profile has been successfully encrypted and saved."
+    - "Go to Login" button → links to /login
+
+NOTE: This page doesn't appear to be directly used in the current flow.
+The register_face.html redirects directly to /login via JavaScript.
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                     DATA FLOW DIAGRAMS                                      ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+═══ EMPLOYEE ONBOARDING FLOW ═══
+
+    Admin clicks "+ Add Employee"
+    ↓
+    Fills form (name, email, department)
+    ↓
+    POST /add_employee
+    ↓
+    Backend generates temp password → Hashes it
+    ↓
+    Creates user in Dataverse (status=True, no face encoding)
+    ↓
+    Builds face registration URL with Dataverse GUID
+    ↓
+    Sends welcome email via Brevo (temp password + registration link)
+    ↓
+    Employee opens email → Clicks "Register Face Now"
+    ↓
+    GET /register_face/<record_id>
+    ↓
+    Employee positions face → Clicks "Capture & Register"
+    ↓
+    POST /process_registration (base64 image)
+    ↓
+    Server extracts 128D face encoding → Saves to Dataverse
+    ↓
+    Redirect to /login
+    ↓
+    Employee enters email + temp password
+    ↓
+    POST /login → status=True detected → redirect to /reset-password
+    ↓
+    Employee sets new strong password
+    ↓
+    POST /update_password → Saves hashed password, status=False
+    ↓
+    Redirect to /login → Employee can now login normally
+
+
+═══ EMPLOYEE LOGIN FLOW ═══
+
+    Employee enters email + password
+    ↓
+    POST /login → Password verified → Session created (verified=False)
+    ↓
+    Redirect to /verify-face?mode=login
+    ↓
+    Camera + GPS activate → Employee positions face → Clicks "Verify"
+    ↓
+    POST /process_verification
+    ↓
+    Server compares live face encoding with stored encoding (tolerance=0.5)
+    ↓
+    IF MATCH:
+        Create attendance record (date, logintime, location)
+        Session: verified=True, last_auth=timestamp
+        Redirect to /employee/dashboard
+    ↓
+    IF NO MATCH:
+        "Face not recognized" error → Try again
+
+
+═══ SESSION EXPIRY FLOW ═══
+
+    Employee is on dashboard → Timer counts down
+    ↓
+    Timer reaches 0 (baseTime + extraTime exhausted)
+    ↓
+    triggerSecurityAlert() fires:
+        1. Captures GPS location
+        2. POST /auto_logout_record (with location data)
+        3. Shows warning overlay
+        4. Fires browser notification #1
+        5. Starts 5-minute interval for repeated notifications
+    ↓
+    OPTION A: "Extend as Meeting"
+        → POST /start_meeting (closes current record, creates meeting record)
+        → Extends session timer
+        → Hides overlay, stops notifications
+    ↓
+    OPTION B: "Verify Face & Login"
+        → Stops notifications
+        → Redirect to /verify-face?mode=login
+        → Re-verify face → Creates new attendance record
+    ↓
+    OPTION C: "Logout & Exit"
+        → Stops notifications
+        → handleSecureLogout() → GPS capture → /verify-face?mode=logout
+
+
+═══ SECURE LOGOUT FLOW ═══
+
+    Employee clicks "Secure Logout →" on sidebar
+    ↓
+    handleSecureLogout():
+        1. Stops any active notifications
+        2. Captures GPS coordinates
+        3. POST /prepare_logout (closes open meeting records)
+        4. Redirect to /verify-face?mode=logout
+    ↓
+    On verify page → Face scan → POST /process_verification (mode=logout)
+    ↓
+    Server:
+        1. Verifies face matches
+        2. Finds open attendance record
+        3. Extracts login coordinates from stored login location
+        4. Calculates distance between login and logout positions
+        5. IF distance > 500m → sends security alert email to admin
+        6. Updates attendance: logouttime, status="Present", logoutlocation
+        7. Clears session
+    ↓
+    Redirect to landing page "/"
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                     SESSION MANAGEMENT SUMMARY                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+Session Storage Keys:
+    user_id      → Dataverse record GUID
+    first_name   → Employee's first name
+    last_name    → Employee's last name
+    employee_id  → Lowercased email
+    role         → "admin" or "employee"
+    verified     → Boolean (True after face verification)
+    last_auth    → Unix timestamp of last authentication
+    registering_id → Temporary: record ID during face registration
+
+Session Lifetime:
+    Default: 1 minute (TESTING MODE — should be 120 minutes for production)
+    Meeting: Extends to match meeting duration
+
+Session Guards:
+    /verify-face          → requires user_id in session
+    /process_verification → requires user_id (returns JSON error if missing)
+    /employee/dashboard   → requires user_id AND verified=True
+    /admin/dashboard      → requires role=admin
+    /add_employee         → requires role=admin
+    /delete_employee      → requires role=admin
+    /update_password      → requires user_id
+    /prepare_logout       → requires user_id
+    /auto_logout_record   → requires user_id
+    /start_meeting        → requires user_id
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                     SECURITY FEATURES                                       ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+1. PASSWORD SECURITY:
+    - Werkzeug PBKDF2 hashing (generate_password_hash/check_password_hash)
+    - Strength enforcement: 8+ chars, uppercase, digit, special char
+    - Forced password change on first login (status=True flag)
+
+2. BIOMETRIC VERIFICATION:
+    - 128-dimensional face encoding using face_recognition library
+    - Comparison tolerance: 0.5 (industry standard for balance of security/usability)
+    - Image downscaled to 25% for performance
+
+3. SESSION MANAGEMENT:
+    - Server-side Flask sessions (encrypted with secret key)
+    - Automatic expiry after configurable timeout
+    - last_auth timestamp tracking
+    - Two-factor: password + face verification required for employees
+
+4. LOCATION TRACKING:
+    - GPS coordinates captured on both login and logout
+    - Reverse geocoding via OpenStreetMap Nominatim
+    - Location mismatch detection (Haversine formula, >500m threshold)
+    - Admin email alert on location mismatch
+
+5. API SECURITY:
+    - OAuth2 client credentials flow for Dataverse access
+    - MSAL token caching (no token per request)
+    - Retry with exponential backoff (handles transient failures)
+    - OData version headers for API compatibility
+
+6. EMAIL SECURITY:
+    - Brevo API key stored in environment variables
+    - OTP-based password recovery flow
+    - Temporary passwords sent only via email
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                     DATAVERSE TABLE SCHEMA                                  ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+TABLE: crc6f_faceappuserses (Users)
+    Primary Key: crc6f_faceappusersid (GUID)
+    Fields:
+        crc6f_firstname       → String: Employee first name
+        crc6f_lastname        → String: Employee last name
+        crc6f_email           → String: Email (lowercased, unique identifier)
+        crc6f_password        → String: Werkzeug PBKDF2 hash
+        crc6f_role            → String: "admin" or "employee"
+        crc6f_faceencoding1   → String: JSON array of 128 floats (face vector)
+        crc6f_status          → Boolean: True = must change password
+        crc6f_employeeid      → String: Same as lowercased email
+
+TABLE: crc6f_hr_faceappattendances (Attendance)
+    Primary Key: crc6f_hr_faceappattendanceid (GUID)
+    Fields:
+        crc6f_firstname       → String: Employee first name
+        crc6f_lastname        → String: Employee last name
+        crc6f_date            → String: "YYYY-MM-DD" format
+        crc6f_logintime       → DateTime/String: ISO 8601 format
+        crc6f_logouttime      → DateTime/String: ISO 8601 format (null = still active)
+        crc6f_status          → String: "Present" / "In Meeting" / "Transition to Meeting" / "Logged Out (Timeout)"
+        crc6f_loginlocation   → String: "City, Country | https://maps.google.com/..."
+        crc6f_logoutlocation  → String: Same format as login location
+        crc6f_employeeid      → String: Employee identifier
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                     KNOWN TESTING / PRODUCTION TOGGLES                      ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+The following values are set for TESTING and should be changed for production:
+
+    1. app.py Line 185:
+        CURRENT:    app.permanent_session_lifetime = timedelta(minutes=1)
+        PRODUCTION: app.permanent_session_lifetime = timedelta(minutes=120)
+
+    2. employee_dashboard.html Line 115:
+        CURRENT:    const baseTime = 60;    // 1 minute
+        PRODUCTION: const baseTime = 7200;  // 2 hours (7200 seconds)
+
+
+================================================================================
+                            END OF ANALYSIS
+================================================================================

@@ -235,7 +235,11 @@
                     status.innerText = "Verified! Redirecting...";
                     
                     setTimeout(() => {
-                        window.location.href = data.redirect; 
+                        if (data.external && data.redirect_url) {
+                            window.location.href = data.redirect_url;
+                        } else {
+                            window.location.href = data.redirect; 
+                        }
                     }, 1200);
                     
                 } else {
