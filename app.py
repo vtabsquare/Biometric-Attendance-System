@@ -349,6 +349,12 @@ def prepare_logout():
 def auto_logout_record():
     if 'user_id' not in session: return jsonify({"success": False})
     try:
+        # Parse location data from request body
+        data = request.get_json(silent=True) or {}
+        loc_text = data.get('detailed_location', 'Unknown')
+        map_link = data.get('location', '#')
+        full_loc_string = f"{loc_text} | {map_link}" if map_link != '#' else ""
+
         IST = pytz.timezone('Asia/Kolkata')
         now = datetime.now(IST)
         today = now.strftime("%Y-%m-%d")
@@ -356,10 +362,13 @@ def auto_logout_record():
         
         open_rec = find_open_attendance(session.get('first_name'), today)
         if open_rec:
-            update_attendance(open_rec[ATTENDANCE_ID_FIELD], {
+            update_data = {
                 "crc6f_logouttime": cur_time_iso,
                 "crc6f_status": "Logged Out (Timeout)",
-            })
+            }
+            if full_loc_string:
+                update_data["crc6f_logoutlocation"] = full_loc_string
+            update_attendance(open_rec[ATTENDANCE_ID_FIELD], update_data)
         return jsonify({"success": True})
     except:
         return jsonify({"success": False})

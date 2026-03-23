@@ -59,7 +59,7 @@
 
             <div style="text-align:left; background: #ffffff; padding: 15px; border-radius: 15px; border: 1px solid #e2e8f0;">
                 <p style="margin:0 0 10px 0; font-weight:700; color:#334155;">👤 Continue Working?</p>
-                <button onclick="window.location.href='/verify-face?mode=login'" style="width:100%; background:#10b981; color:white; border:none; padding:12px; border-radius:8px; font-weight:bold; cursor:pointer;">Verify Face & Login</button>
+                <button onclick="goToVerifyFace()" style="width:100%; background:#10b981; color:white; border:none; padding:12px; border-radius:8px; font-weight:bold; cursor:pointer;">Verify Face & Login</button>
             </div>
 
             <button onclick="handleSecureLogout()" style="background:none; border:none; color:#94a3b8; margin-top:20px; cursor:pointer; font-weight:600; font-size:13px;">Logout & Exit</button>
@@ -118,23 +118,25 @@
         let originalTitle = document.title;
         let flashInterval = null;
 
+        // --- REPEATED NOTIFICATION STATE ---
+        let notificationInterval = null;
+        let notificationCount = 0;
+        const MAX_NOTIFICATIONS = 5;
+        const NOTIFICATION_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
         // Request Notification Permission
         if (Notification.permission !== "granted") {
             Notification.requestPermission();
         }
 
-        // --- UPDATED: SECURE LOGOUT HANDLER WITH GPS ---
+        // --- SECURE LOGOUT HANDLER WITH GPS ---
         async function handleSecureLogout() {
-            // Get location before redirecting to ensure mismatch check works
+            stopRepeatedNotifications(); // Stop notifications on any logout action
             if (navigator.geolocation) {
                 navigator.geolocation.getCurrentPosition(async (position) => {
                     const lat = position.coords.latitude;
                     const lon = position.coords.longitude;
-                    
-                    // Stop any meeting timers in background
                     await fetch('/prepare_logout', { method: 'POST' });
-                    
-                    // Redirect with coordinates to verify page
                     window.location.href = `/verify-face?mode=logout&lat=${lat}&lon=${lon}`;
                 }, async (err) => {
                     console.warn("GPS failed, logging out normally:", err);
@@ -168,8 +170,48 @@
             display.textContent = `Next Scan: ${minutes < 10 ? "0"+minutes : minutes}:${seconds < 10 ? "0"+seconds : seconds}`;
         }
 
+        // --- HELPER: Get GPS + reverse geocode, then call callback ---
+        function getLocationThen(callback) {
+            if (!navigator.geolocation) {
+                callback(null, null, "Unknown", "#");
+                return;
+            }
+            navigator.geolocation.getCurrentPosition(async (position) => {
+                const lat = position.coords.latitude;
+                const lon = position.coords.longitude;
+                const mapsUrl = `https://www.google.com/maps?q=${lat},${lon}`;
+                let detailedLocation = "Location Shared";
+                try {
+                    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}`);
+                    const data = await res.json();
+                    const district = data.address.city || data.address.town || data.address.village || "District Not Found";
+                    const country = data.address.country || "India";
+                    detailedLocation = `${district}, ${country}`;
+                } catch(e) {}
+                callback(lat, lon, detailedLocation, mapsUrl);
+            }, () => {
+                callback(null, null, "Unknown", "#");
+            }, { enableHighAccuracy: true, timeout: 10000 });
+        }
+
+        // --- TRIGGER SECURITY ALERT: captures location + sends to backend ---
         async function triggerSecurityAlert() {
-            await fetch('/auto_logout_record', { method: 'POST' });
+            // Capture GPS location for the timeout logout record
+            getLocationThen(async (lat, lon, detailedLocation, mapsUrl) => {
+                const body = {};
+                if (lat !== null && lon !== null) {
+                    body.lat = lat;
+                    body.lon = lon;
+                    body.detailed_location = detailedLocation;
+                    body.location = mapsUrl;
+                }
+                await fetch('/auto_logout_record', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+            });
+
             document.getElementById('warningOverlay').style.display = 'flex';
 
             if (!flashInterval) {
@@ -178,14 +220,63 @@
                 }, 1000);
             }
 
+            // Fire first notification immediately
+            fireNotification();
+
+            // Start repeated notifications (every 5 minutes, up to 5 times total)
+            startRepeatedNotifications();
+        }
+
+        // --- FIRE A SINGLE BROWSER NOTIFICATION ---
+        function fireNotification() {
+            notificationCount++;
             if (Notification.permission === "granted") {
+                const remaining = MAX_NOTIFICATIONS - notificationCount;
                 const n = new Notification("FaceAuth: SESSION EXPIRED", {
-                    body: "Session expired! Please extend via Meeting or Re-verify face.",
-                    tag: "session-alert",
+                    body: `Session expired! Please extend via Meeting or Re-verify face. (Alert ${notificationCount}/${MAX_NOTIFICATIONS})`,
+                    tag: "session-alert-" + notificationCount, // unique tag so each shows
                     requireInteraction: true 
                 });
-                n.onclick = () => { window.focus(); clearInterval(flashInterval); document.title = originalTitle; };
+                n.onclick = () => { 
+                    window.focus(); 
+                    clearInterval(flashInterval); 
+                    flashInterval = null;
+                    document.title = originalTitle; 
+                };
             }
+        }
+
+        // --- REPEATED NOTIFICATIONS: every 5 minutes, up to 5 times ---
+        function startRepeatedNotifications() {
+            if (notificationInterval) return; // already running
+            
+            notificationInterval = setInterval(() => {
+                if (notificationCount >= MAX_NOTIFICATIONS) {
+                    stopRepeatedNotifications();
+                    return;
+                }
+                fireNotification();
+            }, NOTIFICATION_INTERVAL_MS);
+        }
+
+        // --- STOP REPEATED NOTIFICATIONS (called on user action) ---
+        function stopRepeatedNotifications() {
+            if (notificationInterval) {
+                clearInterval(notificationInterval);
+                notificationInterval = null;
+            }
+            notificationCount = 0;
+            if (flashInterval) {
+                clearInterval(flashInterval);
+                flashInterval = null;
+            }
+            document.title = originalTitle;
+        }
+
+        // --- VERIFY FACE: stop notifications before redirect ---
+        function goToVerifyFace() {
+            stopRepeatedNotifications();
+            window.location.href = '/verify-face?mode=login';
         }
 
         async function submitMeetingFromPopup() {
@@ -202,8 +293,7 @@
                 extraTime += snoozeSeconds; 
                 document.getElementById('warningOverlay').style.display = 'none';
                 isWarningActive = false;
-                clearInterval(flashInterval);
-                document.title = originalTitle;
+                stopRepeatedNotifications(); // Stop all repeated notifications
                 alert(`Meeting Logged. Session extended by ${snoozeMinutes} mins.`);
             }
         }
