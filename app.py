@@ -531,10 +531,11 @@ def add_employee():
     f = request.form.get('first_name')
     l = request.form.get('last_name')
     e = request.form.get('email', '').strip().lower()
+    emp_id = request.form.get('employee_id', '').strip()
     temp_pass = ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(8))
     
     try:
-        employee_id = _generate_employee_id(e)
+        employee_id = emp_id if emp_id else _generate_employee_id(e)
         created_record = create_user(
             first_name=f,
             last_name=l,
