@@ -326,27 +326,41 @@ def process_verification():
             cur_time_iso = now.strftime("%Y-%m-%dT%H:%M:%SZ")
             
             if session.get('external_auth'):
-                emp_id = session.get('employee_id')
-                print("Session at verification:", session)
-                
-                # Fetch new token from HR portal
-                hr_api_url = "https://officeportal.vtabsquare.com/api/auth/face-verified"
-                hr_response = requests.post(hr_api_url, json={"employee_id": emp_id})
-                
-                if hr_response.status_code != 200:
-                    return jsonify({"error": "HR verification failed"}), 500
-                
                 try:
-                    hr_data = hr_response.json()
-                    new_token = hr_data.get('token')
-                except:
-                    new_token = None
+                    print("SESSION:", dict(session))
+                    
+                    employee_id = session.get("employee_id")
+                    print("EMPLOYEE ID:", employee_id)
 
-                return jsonify({
-                    "success": True, 
-                    "external": True, 
-                    "redirect_url": f"https://officeportal.vtabsquare.com/dashboard?token={new_token}"
-                })
+                    if not employee_id:
+                        raise Exception("Employee ID missing in session")
+
+                    response = requests.post(
+                        "https://officeportal.vtabsquare.com/api/auth/face-verified",
+                        json={"employee_id": employee_id},
+                        headers={"Content-Type": "application/json"}
+                    )
+
+                    print("HR RESPONSE STATUS:", response.status_code)
+                    print("HR RESPONSE BODY:", response.text)
+
+                    if response.status_code != 200:
+                        raise Exception("HR API failed")
+
+                    new_token = response.json().get("token")
+
+                    return jsonify({
+                        "success": True,
+                        "external": True,
+                        "redirect_url": f"https://officeportal.vtabsquare.com/#/?token={new_token}"
+                    })
+
+                except Exception as e:
+                    print("ERROR IN VERIFICATION:", str(e))
+                    return jsonify({
+                        "success": False,
+                        "message": str(e)
+                    })
             
             elif mode == 'logout':
                 # --- LOCATION MISMATCH CHECK ---
@@ -397,7 +411,7 @@ def process_verification():
         return jsonify({"success": False, "message": "Face not recognized."})
     except Exception as e:
         print(f"Verification error: {e}")
-        return jsonify({"success": False, "message": "Server error."})
+        return jsonify({"success": False, "message": str(e)})
 
 # --- SECURE LOGOUT PREPARATION ---
 @app.route('/prepare_logout', methods=['POST'])
