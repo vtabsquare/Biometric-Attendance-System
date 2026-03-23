@@ -55,7 +55,14 @@ os.environ["DLIB_USE_CUDA"] = "0"
 # --- INITIALIZATION ---
 load_dotenv()
 app = Flask(__name__)
-app.secret_key = os.getenv("FLASK_SECRET")
+app.secret_key = os.getenv("FLASK_SECRET", "default-fallback-secret-key-1234")
+
+# Important for cross-site iframe/redirect context cookies
+app.config.update(
+    SESSION_COOKIE_SAMESITE='None',
+    SESSION_COOKIE_SECURE=True
+)
+
 CORS(app) 
 
 BREVO_API_KEY = os.getenv("BREVO_API_KEY")
@@ -208,7 +215,7 @@ def external_verify():
         session['employee_id'] = emp_id
         session['external_auth'] = True
         
-        print("External login session:", session)
+        print("SET SESSION:", session)
         
         return redirect(url_for('verify_face', mode='external_verify'))
         
@@ -306,8 +313,14 @@ def verify_face():
 
 @app.route('/process_verification', methods=['POST'])
 def process_verification():
+    print("SESSION IN VERIFY:", dict(session))
+    
+    if "external_auth" not in session:
+        print("WARNING: external_auth missing")
+        
     data = request.get_json()
     record_id = session.get('user_id')
+    
     if not record_id and not session.get('external_auth'):
         return jsonify({"success": False, "message": "Session expired. Please login again."})
     mode = data.get('mode', 'login')
