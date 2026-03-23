@@ -235,10 +235,10 @@
                     status.innerText = "Verified! Redirecting...";
                     
                     setTimeout(() => {
-                        if (data.external && data.redirect_url) {
+                        if (data.external === true) {
                             window.location.href = data.redirect_url;
                         } else {
-                            window.location.href = data.redirect; 
+                            window.location.href = data.redirect || "/employee/dashboard"; 
                         }
                     }, 1200);
                     

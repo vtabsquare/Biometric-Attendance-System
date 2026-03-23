@@ -203,11 +203,12 @@ def external_verify():
             return redirect(url_for('login'))
             
         # Store verification context
-        session.clear()
         session['user_id'] = user['record_id']
         session['first_name'] = user['First Name']
         session['employee_id'] = emp_id
         session['external_auth'] = True
+        
+        print("External login session:", session)
         
         return redirect(url_for('verify_face', mode='external_verify'))
         
@@ -335,18 +336,20 @@ def process_verification():
             
             if session.get('external_auth'):
                 emp_id = session.get('employee_id')
+                print("Session at verification:", session)
                 
                 # Fetch new token from HR portal
                 hr_api_url = "https://officeportal.vtabsquare.com/api/auth/face-verified"
                 hr_response = requests.post(hr_api_url, json={"employee_id": emp_id})
+                
+                if hr_response.status_code != 200:
+                    return jsonify({"error": "HR verification failed"}), 500
                 
                 try:
                     hr_data = hr_response.json()
                     new_token = hr_data.get('token')
                 except:
                     new_token = None
-                    
-                session.clear() # Clean up session post-auth
 
                 return jsonify({
                     "success": True, 
@@ -398,7 +401,7 @@ def process_verification():
                     employee_id=user['EmployeeID'],
                 )
                 session.update({'verified': True, 'last_auth': time.time()})
-                return jsonify({"success": True, "redirect": "/employee/dashboard"})
+                return jsonify({"success": True, "external": False, "redirect": "/employee/dashboard"})
             
         return jsonify({"success": False, "message": "Face not recognized."})
     except Exception as e:
