@@ -221,7 +221,7 @@
                 })
             })
             .then(res => {
-                // Handle session expiry (server redirects to login)
+                // Keep handling session expiry redirects gracefully
                 if (res.redirected) {
                     window.location.href = '/login';
                     return null;
@@ -230,15 +230,36 @@
             })
             .then(data => {
                 if (!data) return; // Redirected already
-                if (data.success) {
+                
+                console.log("Verification Response:", data);
+                console.log("External flag:", data.external);
+                
+                if (data.success === true) {
                     status.style.color = "#34a853";
                     status.innerText = "Verified! Redirecting...";
                     
                     setTimeout(() => {
-                        if (data.external === true) {
-                            window.location.href = data.redirect_url;
+                        // 🔥 HANDLE EXTERNAL FLOW FIRST
+                        if (data.external === true && data.redirect_url) {
+                            console.log("Redirecting to HR tool:", data.redirect_url);
+                            
+                            // FIX HASH ROUTING (IMPORTANT)
+                            let redirectUrl = data.redirect_url;
+                            
+                            // If HR uses # routing, ensure correct format
+                            if (!redirectUrl.includes("#")) {
+                                redirectUrl = redirectUrl.replace(
+                                    "https://officeportal.vtabsquare.com/",
+                                    "https://officeportal.vtabsquare.com/#/"
+                                );
+                            }
+                            
+                            window.location.href = redirectUrl;
+                            
                         } else {
-                            window.location.href = data.redirect || "/employee/dashboard"; 
+                            console.log("Redirecting to FaceAuth dashboard");
+                            // Keep using data.redirect so logout doesn't break
+                            window.location.href = data.redirect || "/employee/dashboard";
                         }
                     }, 1200);
                     
@@ -250,11 +271,12 @@
                         status.innerText = "Session expired. Redirecting to login...";
                         setTimeout(() => { window.location.href = '/login'; }, 2000);
                     } else {
-                        status.innerText = data.message || "Face not recognized. Please try again.";
+                        status.innerText = data.message || "Face verification failed.";
                     }
                 }
             })
             .catch(err => {
+                console.error("Verification Error:", err);
                 btn.disabled = false;
                 status.style.color = "#ea4335";
                 status.innerText = "Server Error. Please check connection.";
