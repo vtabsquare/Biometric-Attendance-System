@@ -186,22 +186,12 @@ def external_verify():
         decoded = jwt.decode(token, JWT_SECRET, algorithms=["HS512"])
         employee_id = decoded.get("employee_id")
         
-        print("VALID TOKEN:", employee_id)
-        
-        # Get user ID to ensure face recognition works if token is valid
-        dv_user = get_user_by_employeeid(employee_id)
-        if dv_user:
-            user = _norm_user(dv_user)
-            session['user_id'] = user['record_id']
-            session['first_name'] = user['First Name']
+        print("DECODED EMPLOYEE:", employee_id)
 
     except Exception as e:
         print("JWT ERROR:", str(e))
-        
-        # 🔥 fallback for debugging
         employee_id = "test_user"
 
-    # 🔥 ALWAYS set session
     session["employee_id"] = employee_id
     session["external_auth"] = True
 
@@ -286,8 +276,12 @@ def process_registration():
 def verify_face():
     if 'user_id' not in session and not session.get('external_auth'): 
         return redirect(url_for('login'))
+        
+    print("SESSION IN VERIFY PAGE:", dict(session))
+    
+    display_name = session.get('first_name') or session.get('employee_id') or "User"
     mode = request.args.get('mode', 'login') 
-    return render_template('verify_face.html', name=session.get('first_name'), mode=mode)
+    return render_template('verify_face.html', name=display_name, mode=mode)
 
 @app.route('/process_verification', methods=['POST'])
 def process_verification():
@@ -311,7 +305,18 @@ def process_verification():
     lon = data.get('lon')
 
     try:
-        dv_user = get_user_by_id(record_id)
+        if session.get('external_auth'):
+            emp_id = session.get('employee_id')
+            if not emp_id:
+                raise Exception("Employee ID missing from session")
+            dv_user = get_user_by_employeeid(emp_id)
+            if not dv_user:
+                raise Exception(f"User with Employee ID {emp_id} not found in database")
+        else:
+            dv_user = get_user_by_id(record_id)
+            if not dv_user:
+                raise Exception("User record not found")
+                
         user = _norm_user(dv_user)
         stored_enc = np.array(json.loads(user['FaceEncoding']))
         img_data = base64.b64decode(data['image'].split(',')[1])
