@@ -184,20 +184,19 @@ def external_verify():
 
     try:
         decoded = jwt.decode(token, JWT_SECRET, algorithms=["HS512"])
+        print("DECODE SUCCESS:", decoded)
+        
         employee_id = decoded.get("employee_id")
         
-        print("DECODED EMPLOYEE:", employee_id)
+        session["employee_id"] = employee_id
+        session["external_auth"] = True
+        
+        print("SESSION SET:", session)
+        return redirect("/verify-face")
 
     except Exception as e:
         print("JWT ERROR:", str(e))
-        employee_id = "test_user"
-
-    session["employee_id"] = employee_id
-    session["external_auth"] = True
-
-    print("SESSION SET:", session)
-
-    return redirect("/verify-face")
+        return "Invalid token", 400
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
