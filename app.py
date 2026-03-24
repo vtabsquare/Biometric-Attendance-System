@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 import pytz
 import jwt
 from dotenv import load_dotenv
+import urllib.parse
 
 # --- Dataverse Service Layer ---
 from dataverse_service import (
@@ -183,15 +184,28 @@ def external_verify():
         return "Missing token", 400
 
     try:
-        decoded = jwt.decode(token, JWT_SECRET, algorithms=["HS512"])
+        # 🔥 STEP 1: Decode URL encoding
+        decoded_token = urllib.parse.unquote(token)
+
+        print("RAW TOKEN FROM URL:", token)
+        print("DECODED TOKEN:", decoded_token)
+        print("TOKEN LENGTH:", len(decoded_token))
+
+        # 🔥 STEP 2: Decode JWT
+        decoded = jwt.decode(decoded_token, JWT_SECRET, algorithms=["HS512"])
         print("DECODE SUCCESS:", decoded)
         
         employee_id = decoded.get("employee_id")
+
+        if not employee_id:
+            return "Employee ID missing in token", 400
         
+        # 🔥 STEP 3: Set session
         session["employee_id"] = employee_id
         session["external_auth"] = True
         
         print("SESSION SET:", session)
+
         return redirect("/verify-face")
 
     except Exception as e:
