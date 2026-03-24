@@ -42,9 +42,15 @@ def get_user_by_employeeid(employee_id: str):
     Look up a user by crc6f_employeeid.
     Returns the user dict or None.
     """
+    if not employee_id:
+        raise Exception("Employee ID missing in query")
+        
+    filter_str = f"crc6f_employeeid eq '{employee_id}'"
+    print("QUERY FILTER:", filter_str)
+    
     records = query_records(
         USERS_TABLE,
-        filter_query=f"crc6f_employeeid eq '{employee_id}'",
+        filter_query=filter_str,
     )
     return records[0] if records else None
 
