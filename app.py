@@ -176,31 +176,37 @@ def _generate_employee_id(email: str) -> str:
 def index(): 
     return render_template('landing.html')
 
+@app.route('/health')
+def health_check():
+    return jsonify({"status": "ok"}), 200
+
+@app.errorhandler(400)
+def bad_request(e):
+    return jsonify({"error": str(e)}), 400
+
 @app.route('/external-verify')
 def external_verify():
-    token = request.args.get('token')
-    callback_url = request.args.get('callback_url')
+    token = urllib.parse.unquote(request.args.get('token', ''))
+    callback_url = urllib.parse.unquote(request.args.get('callback_url', ''))
 
     if not token or not callback_url:
         return jsonify({"error": "Invalid or expired token"}), 400
 
     try:
-        # 🔥 STEP 1: Decode URL encoding
-        decoded_token = urllib.parse.unquote(token)
-
-        # 🔥 STEP 2: Decode JWT
-        decoded = jwt.decode(decoded_token, str(JWT_SECRET), algorithms=["HS512"])
+        SECRET_KEY = os.environ.get('JWT_SECRET_KEY', str(JWT_SECRET) if JWT_SECRET else 'fallback')
         
-        employee_id = decoded.get("employee_id")
+        # Decode JWT
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS512"])
+        
+        employee_id = payload.get("employee_id")
         if not employee_id:
             return jsonify({"error": "Invalid or expired token"}), 400
         
-        # 🔥 STEP 3: Set session
-        session["employee_id"] = employee_id
-        session["external_auth"] = True
-        session["callback_url"] = callback_url
-        session["original_token"] = decoded_token
-        session["decoded_jwt"] = decoded
+        # Store in session
+        session['pending_token'] = token
+        session['callback_url'] = callback_url
+        session['employee_id'] = employee_id
+        session['external_auth'] = True
 
         return redirect("/verify-face")
 
@@ -342,29 +348,23 @@ def process_verification():
             if session.get('external_auth'):
                 try:
                     callback_url = session.get('callback_url')
-                    if not callback_url:
+                    pending_token = session.get('pending_token')
+
+                    if not callback_url or not pending_token:
                         return jsonify({"error": "No callback URL configured"}), 400
                         
-                    # Copy all claims from the original decoded payload
-                    original_claims = session.get('decoded_jwt', {})
+                    SECRET_KEY = os.environ.get('JWT_SECRET_KEY', str(JWT_SECRET) if JWT_SECRET else 'fallback')
+                    original_claims = jwt.decode(pending_token, SECRET_KEY, algorithms=["HS512"], options={"verify_exp": False})
+                    
                     new_payload = original_claims.copy()
-                    
-                    # Set face_verified = True
                     new_payload['face_verified'] = True
-                    
-                    # Set a fresh expiry (e.g. 12 hours from now)
                     new_payload['exp'] = datetime.utcnow() + timedelta(hours=12)
                     
-                    # Sign with the same SECRET_KEY and HS512
-                    new_token = jwt.encode(new_payload, str(JWT_SECRET), algorithm="HS512")
-                    
+                    new_token = jwt.encode(new_payload, SECRET_KEY, algorithm="HS512")
                     if isinstance(new_token, bytes):
                         new_token = new_token.decode('utf-8')
                         
-                    # URL-encode the new token
                     encoded_new_token = urllib.parse.quote(new_token, safe='')
-                    
-                    # Combine redirect URL structure
                     redirect_url = f"{callback_url}?token={encoded_new_token}&face_verified=true"
 
                     return jsonify({

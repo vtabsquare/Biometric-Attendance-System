@@ -236,20 +236,19 @@
                 
                 if (data.success === true) {
                     status.style.color = "#34a853";
-                    status.innerText = "Verified! Redirecting...";
                     
-                    setTimeout(() => {
-                        // 🔥 HANDLE EXTERNAL FLOW FIRST
-                        if (data.external === true && data.redirect_url) {
-                            console.log("Redirecting to HR tool:", data.redirect_url);
-                            window.location.href = data.redirect_url;
-                            
-                        } else {
-                            console.log("Redirecting to FaceAuth dashboard");
-                            // Keep using data.redirect so logout doesn't break
-                            window.location.href = data.redirect || "/employee/dashboard";
-                        }
-                    }, 1200);
+                    // Stop the camera
+                    if (video.srcObject) {
+                        video.srcObject.getTracks().forEach(t => t.stop());
+                    }
+                    
+                    if (data.external === true && data.redirect_url) {
+                        status.innerText = "Face verified! Redirecting to HR Tool...";
+                        setTimeout(() => { window.location.href = data.redirect_url; }, 1500);
+                    } else {
+                        status.innerText = "Verified! Redirecting...";
+                        setTimeout(() => { window.location.href = data.redirect || "/employee/dashboard"; }, 1500);
+                    }
                     
                 } else {
                     btn.disabled = false;
