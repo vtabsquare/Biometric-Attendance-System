@@ -214,6 +214,44 @@ def external_verify():
         print("JWT ERROR:", str(e))
         return jsonify({"error": "Invalid or expired token"}), 400
 
+@app.route('/magic-register')
+def magic_register():
+    token = urllib.parse.unquote(request.args.get('token', ''))
+    
+    if not token:
+        return jsonify({"error": "Invalid or missing token"}), 400
+
+    try:
+        SECRET_KEY = os.environ.get('JWT_SECRET_KEY', str(JWT_SECRET) if JWT_SECRET else 'fallback')
+        
+        # Decode JWT
+        payload = jwt.decode(token, SECRET_KEY, algorithms=["HS512"])
+        
+        employee_id = payload.get("employee_id")
+        action = payload.get("action")
+        
+        if not employee_id or action != "register":
+            return jsonify({"error": "Invalid token action"}), 400
+            
+        dv_user = get_user_by_employeeid(employee_id)
+        if not dv_user:
+            return jsonify({"error": "User not found"}), 404
+            
+        record_id = dv_user.get(USERS_ID_FIELD)
+        
+        # Grant one-time registration access
+        session.clear()
+        session['user_id'] = record_id
+        session['employee_id'] = employee_id
+        session['magic_register'] = True
+        session['first_name'] = dv_user.get('crc6f_firstname', 'Employee')
+
+        return redirect(url_for('register_face', record_id=record_id))
+
+    except Exception as e:
+        print("MAGIC LINK ERROR:", str(e))
+        return jsonify({"error": "Invalid or expired token. Please request a new link if necessary."}), 400
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -226,6 +264,10 @@ def login():
                 return render_template('login.html')
             
             user = _norm_user(dv_user)
+            
+            if user['Role'].lower() == 'employee':
+                flash("Employee login has moved. Please log in through the HR Portal.", "error")
+                return redirect(url_for('login'))
             
             if check_password_hash(user['Password'], password):
                 session.clear()
@@ -352,6 +394,44 @@ def process_verification():
 
                     if not callback_url or not pending_token:
                         return jsonify({"error": "No callback URL configured"}), 400
+
+                    # --- NATIVE ATTENDANCE TRACKING FOR EXTERNAL FLOW ---
+                    if mode == 'logout':
+                        open_rec = find_open_attendance(user['First Name'], today)
+                        if open_rec:
+                            login_loc_str = open_rec.get('crc6f_loginlocation', '')
+                            login_lat, login_lon = None, None
+                            if "q=" in login_loc_str:
+                                try:
+                                    coords = login_loc_str.split("q=")[-1].split(',')
+                                    login_lat = float(coords[0])
+                                    login_lon = float(coords[1])
+                                except: pass
+                            
+                            if login_lat is not None and login_lon is not None:
+                                distance = get_distance_meters(login_lat, login_lon, lat, lon)
+                                if distance > 500:
+                                    send_location_alert_email(
+                                        user['Email'], user['First Name'], distance, 
+                                        f"{login_lat},{login_lon}", f"{lat},{lon}"
+                                    )
+
+                            update_attendance(open_rec[ATTENDANCE_ID_FIELD], {
+                                "crc6f_logouttime": cur_time_iso,
+                                "crc6f_status": "Present",
+                                "crc6f_logoutlocation": full_loc_string,
+                            })
+                    else: # Default login mode
+                        create_attendance(
+                            first_name=user['First Name'],
+                            last_name=user['Last Name'],
+                            date_str=today,
+                            login_time=cur_time_iso,
+                            status="Present",
+                            login_location=full_loc_string,
+                            employee_id=user['EmployeeID'],
+                        )
+                    # ----------------------------------------------------
                         
                     SECRET_KEY = os.environ.get('JWT_SECRET_KEY', str(JWT_SECRET) if JWT_SECRET else 'fallback')
                     original_claims = jwt.decode(pending_token, SECRET_KEY, algorithms=["HS512"], options={"verify_exp": False})
@@ -558,7 +638,6 @@ def add_employee():
     l = request.form.get('last_name')
     e = request.form.get('email', '').strip().lower()
     emp_id = request.form.get('employee_id', '').strip()
-    temp_pass = ''.join(random.choice(string.ascii_letters + string.digits) for _ in range(8))
     
     try:
         employee_id = emp_id if emp_id else _generate_employee_id(e)
@@ -566,22 +645,32 @@ def add_employee():
             first_name=f,
             last_name=l,
             email=e,
-            hashed_password=generate_password_hash(temp_pass),
+            hashed_password=generate_password_hash("NO_LOGIN_REQUIRED"),
             role='employee',
             employee_id=employee_id,
             status=True,
         )
         
-        new_record_id = created_record.get(USERS_ID_FIELD)
-        reg_link = f"https://biometric-attendance-system-tsca.onrender.com/register_face/{new_record_id}"
+        # Generate Magic Link JWT for Registration
+        SECRET_KEY = os.environ.get('JWT_SECRET_KEY', str(JWT_SECRET) if JWT_SECRET else 'fallback')
+        magic_payload = {
+            "employee_id": employee_id,
+            "action": "register",
+            "exp": datetime.utcnow() + timedelta(days=7)
+        }
+        magic_token = jwt.encode(magic_payload, SECRET_KEY, algorithm="HS512")
+        if isinstance(magic_token, bytes):
+            magic_token = magic_token.decode('utf-8')
+        
+        encoded_token = urllib.parse.quote(magic_token, safe='')
+        reg_link = f"https://biometric-attendance-system-tsca.onrender.com/magic-register?token={encoded_token}"
         
         email_html = f"""
         <div style="background-color: #121212; color: #ffffff; padding: 40px; font-family: sans-serif; border-radius: 10px;">
             <h1 style="color: #4c8bf5; font-size: 28px;">Hello {f},</h1>
-            <p style="font-size: 18px; line-height: 1.6;">Your workspace account is ready. Please follow these steps:</p>
+            <p style="font-size: 18px; line-height: 1.6;">Your biometric workspace account is ready. Please follow these steps:</p>
             <div style="background-color: #1a1a1a; padding: 25px; border-radius: 12px; margin: 25px 0; border: 1px solid #333;">
-                <p style="margin: 0 0 10px 0;"><b>1. Temporary Password:</b> <code style="background-color: #333; padding: 4px 8px; border-radius: 6px; color: #4c8bf5;">{temp_pass}</code></p>
-                <p style="margin: 0;"><b>2. Face Registration:</b> You must register your face profile before logging in.</p>
+                <p style="margin: 0;"><b>Secure Face Registration:</b> You must register your face securely before you can log in to the HR Portal.</p>
             </div>
             <a href="{reg_link}" style="display: inline-block; background-color: #4c8bf5; color: white; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">Register Face Now</a>
         </div>

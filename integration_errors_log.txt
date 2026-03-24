@@ -1,0 +1,39 @@
+=========================================================
+HR TOOL & FACEAUTH INTEGRATION - ERROR & RESOLUTION LOG
+=========================================================
+
+1. Render Free Tier Cold-Start Timeouts (400 Bad Request)
+   - Issue: The HR Tool was redirecting users to the FaceAuth `/external-verify` endpoint while the FaceAuth Render instance was still "asleep". The unready server dropped the request, returning a generic 400 error.
+   - Fix: Implemented a `GET /health` endpoint on FaceAuth. Added a `wakeUpFaceAuth()` asynchronous while-loop in the HR Tool's `login.js` frontend to ping the health endpoint for up to 20 seconds. It now waits for a `200 OK` response before executing the redirect.
+
+2. JWT "Expected a string value" Signature Crash
+   - Issue: The Flask backend failed to decode the incoming JWT payload from the HR Tool, triggering a 500 error or falling back to a `test_user` debug state.
+   - Fix: The `SECRET_KEY` was being read dynamically from the environment and defaulting to incompatible byte formats in older PyJWT versions. Enforced `str(JWT_SECRET)` explicitly in both the `.decode()` and `.encode()` functions.
+
+3. URL Encoding Corruption on Tokens
+   - Issue: JWTs contain special characters (like `+`, `/`, `=`). When appended to the redirect URL natively, the browser scrambled them, making token validation fail on arrival.
+   - Fix: Added `urllib.parse.unquote()` to decode the incoming token on `request.args.get()`. When FaceAuth sends the token back, it now safely repackages it with `urllib.parse.quote(new_token, safe='')`.
+
+4. Dataverse OData Query Syntax Error (400 Bad Request)
+   - Issue: The application threw a server error when attempting to look up the `employee_id` in Dataverse during verification.
+   - Fix: Dataverse requires string variables to be perfectly wrapped in single quotes within OData filters. `filter=crc6f_employeeid eq {employee_id}` was invalid and was corrected to `filter=crc6f_employeeid eq '{employee_id}'`.
+
+5. Session State Loss Across Redirects
+   - Issue: Once the JWT was verified, FaceAuth redirected the user internally from `/external-verify` to `/verify-face`. Originally, the database lookup happened too early, crashing the route and causing the `session["external_auth"]` flag to be lost.
+   - Fix: Delayed the heavy database user lookup until `process_verification` (after the face is scanned). The initial route now purely sets the session variables and redirects instantly.
+
+6. Frontend Hardcoded Hash-Routing Collision
+   - Issue: The frontend javascript in `verify_face.html` had a hardcoded `replace()` function trying to inject `/#/` into the redirect URL. This broke the dynamic `callback_url` pipeline sent from the HR Tool.
+   - Fix: Purged the regex/replace hack. The frontend now strictly trusts the `data.redirect_url` generated explicitly by the Python backend.
+
+7. "Hello None" UI Variable Bug
+   - Issue: The UI displayed "Hello None, please scan your face" because the native FaceAuth login populates `first_name` in the session, but the external JWT flow initially only populated `employee_id`.
+   - Fix: Updated the backend template renderer to fall back safely: `session.get('first_name') or session.get('employee_id') or "User"`.
+
+8. Hardware Web Camera Remaining Active
+   - Issue: After successful verification and redirection back to the HR portal, the laptop/phone camera hardware light remained on in the background.
+   - Fix: Added explicit garbage collection before the redirect fires using `video.srcObject.getTracks().forEach(t => t.stop())` to sever the webcam stream.
+
+9. Bypassed Attendance Logging
+   - Issue: The external JWT flow was bypassing the standard `create_attendance` and `update_attendance` Dataverse insertions, meaning externally-verified employees weren't having their GPS or time recorded.
+   - Fix: Natively wired the attendance and location-mismatch email logic into the external success block inside `/process_verification`.
