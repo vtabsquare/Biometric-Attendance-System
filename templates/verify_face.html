@@ -242,19 +242,7 @@
                         // 🔥 HANDLE EXTERNAL FLOW FIRST
                         if (data.external === true && data.redirect_url) {
                             console.log("Redirecting to HR tool:", data.redirect_url);
-                            
-                            // FIX HASH ROUTING (IMPORTANT)
-                            let redirectUrl = data.redirect_url;
-                            
-                            // If HR uses # routing, ensure correct format
-                            if (!redirectUrl.includes("#")) {
-                                redirectUrl = redirectUrl.replace(
-                                    "https://officeportal.vtabsquare.com/",
-                                    "https://officeportal.vtabsquare.com/#/"
-                                );
-                            }
-                            
-                            window.location.href = redirectUrl;
+                            window.location.href = data.redirect_url;
                             
                         } else {
                             console.log("Redirecting to FaceAuth dashboard");
@@ -266,8 +254,11 @@
                 } else {
                     btn.disabled = false;
                     status.style.color = "#ea4335";
-                    // If session expired on backend
-                    if (data.message && data.message.toLowerCase().includes('session')) {
+                    
+                    // Display explicit backend errors if provided
+                    if (data.error) {
+                        status.innerText = data.error;
+                    } else if (data.message && data.message.toLowerCase().includes('session')) {
                         status.innerText = "Session expired. Redirecting to login...";
                         setTimeout(() => { window.location.href = '/login'; }, 2000);
                     } else {

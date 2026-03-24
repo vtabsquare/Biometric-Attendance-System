@@ -179,38 +179,34 @@ def index():
 @app.route('/external-verify')
 def external_verify():
     token = request.args.get('token')
+    callback_url = request.args.get('callback_url')
 
-    if not token:
-        return "Missing token", 400
+    if not token or not callback_url:
+        return jsonify({"error": "Invalid or expired token"}), 400
 
     try:
         # 🔥 STEP 1: Decode URL encoding
         decoded_token = urllib.parse.unquote(token)
 
-        print("RAW TOKEN FROM URL:", token)
-        print("DECODED TOKEN:", decoded_token)
-        print("TOKEN LENGTH:", len(decoded_token))
-
         # 🔥 STEP 2: Decode JWT
-        decoded = jwt.decode(decoded_token, JWT_SECRET, algorithms=["HS512"])
-        print("DECODE SUCCESS:", decoded)
+        decoded = jwt.decode(decoded_token, str(JWT_SECRET), algorithms=["HS512"])
         
         employee_id = decoded.get("employee_id")
-
         if not employee_id:
-            return "Employee ID missing in token", 400
+            return jsonify({"error": "Invalid or expired token"}), 400
         
         # 🔥 STEP 3: Set session
         session["employee_id"] = employee_id
         session["external_auth"] = True
-        
-        print("SESSION SET:", session)
+        session["callback_url"] = callback_url
+        session["original_token"] = decoded_token
+        session["decoded_jwt"] = decoded
 
         return redirect("/verify-face")
 
     except Exception as e:
         print("JWT ERROR:", str(e))
-        return "Invalid token", 400
+        return jsonify({"error": "Invalid or expired token"}), 400
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -345,32 +341,36 @@ def process_verification():
             
             if session.get('external_auth'):
                 try:
-                    print("SESSION:", dict(session))
+                    callback_url = session.get('callback_url')
+                    if not callback_url:
+                        return jsonify({"error": "No callback URL configured"}), 400
+                        
+                    # Copy all claims from the original decoded payload
+                    original_claims = session.get('decoded_jwt', {})
+                    new_payload = original_claims.copy()
                     
-                    employee_id = session.get("employee_id")
-                    print("EMPLOYEE ID:", employee_id)
-
-                    if not employee_id:
-                        raise Exception("Employee ID missing in session")
-
-                    response = requests.post(
-                        "https://officeportal.vtabsquare.com/api/auth/face-verified",
-                        json={"employee_id": employee_id},
-                        headers={"Content-Type": "application/json"}
-                    )
-
-                    print("HR RESPONSE STATUS:", response.status_code)
-                    print("HR RESPONSE BODY:", response.text)
-
-                    if response.status_code != 200:
-                        raise Exception("HR API failed")
-
-                    new_token = response.json().get("token")
+                    # Set face_verified = True
+                    new_payload['face_verified'] = True
+                    
+                    # Set a fresh expiry (e.g. 12 hours from now)
+                    new_payload['exp'] = datetime.utcnow() + timedelta(hours=12)
+                    
+                    # Sign with the same SECRET_KEY and HS512
+                    new_token = jwt.encode(new_payload, str(JWT_SECRET), algorithm="HS512")
+                    
+                    if isinstance(new_token, bytes):
+                        new_token = new_token.decode('utf-8')
+                        
+                    # URL-encode the new token
+                    encoded_new_token = urllib.parse.quote(new_token, safe='')
+                    
+                    # Combine redirect URL structure
+                    redirect_url = f"{callback_url}?token={encoded_new_token}&face_verified=true"
 
                     return jsonify({
                         "success": True,
                         "external": True,
-                        "redirect_url": f"https://officeportal.vtabsquare.com/#/?token={new_token}"
+                        "redirect_url": redirect_url
                     })
 
                 except Exception as e:
