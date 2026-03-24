@@ -50,11 +50,15 @@
             .then(data => {
                 if (data.success) {
                     status.style.color = "green";
-                    status.innerText = "Registration Successful! Redirecting...";
-                    setTimeout(() => {
-                        // FORCE REDIRECT TO RENDER LOGIN
-                        window.location.href = "https://biometric-attendance-system-tsca.onrender.com/login";
-                    }, 2000);
+                    status.innerText = "Registration Successful! You can now close this tab and log into your HR Portal.";
+                    
+                    // Stop the camera
+                    if (video.srcObject) {
+                        video.srcObject.getTracks().forEach(t => t.stop());
+                    }
+                    
+                    // Hide the capture button
+                    captureBtn.style.display = 'none';
                 } else {
                     status.style.color = "red";
                     status.innerText = "Failed to detect face. Try again.";
