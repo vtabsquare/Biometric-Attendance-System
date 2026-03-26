@@ -252,6 +252,62 @@ def magic_register():
         print("MAGIC LINK ERROR:", str(e))
         return jsonify({"error": "Invalid or expired token. Please request a new link if necessary."}), 400
 
+@app.route('/admin-sso')
+def admin_sso():
+    """
+    SSO endpoint for HR Tool admins to access FaceAuth admin dashboard
+    without re-entering credentials.
+    """
+    token = request.args.get('token')
+    if not token:
+        flash("Missing SSO token.", "error")
+        return redirect(url_for('login'))
+    
+    try:
+        SECRET_KEY = os.environ.get('JWT_SECRET_KEY', str(JWT_SECRET) if JWT_SECRET else 'fallback')
+        
+        # Decode and validate the JWT token (Accepting both HS256/HS512 for cross-compatibility)
+        payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256', 'HS512'])
+        
+        # Check if user has admin privileges (L3 role)
+        access_level = payload.get('access_level') or payload.get('role', '')
+        is_admin = payload.get('is_admin', False)
+        
+        if access_level != 'L3' and not is_admin:
+            flash("Not authorized for Admin Dashboard.", "error")
+            return redirect(url_for('login'))
+        
+        email = payload.get('email')
+        employee_id = payload.get('employee_id')
+        name = payload.get('name', 'Admin User')
+        
+        # Create session mapping exact native FaceAuth structure
+        session.clear()
+        session.permanent = True
+        app.permanent_session_lifetime = timedelta(minutes=120)
+        
+        session.update({
+            'user_id': employee_id, # Surrogate for DV record
+            'first_name': name.split(' ')[0],
+            'last_name': name.split(' ')[-1] if ' ' in name else '',
+            'employee_id': employee_id,
+            'email': email,
+            'role': 'admin',
+            'verified': True,
+            'last_auth': time.time()
+        })
+        
+        return redirect(url_for('admin_dashboard'))
+        
+    except jwt.ExpiredSignatureError:
+        flash("SSO token expired.", "error")
+        return redirect(url_for('login'))
+    except Exception as e:
+        print(f"[ADMIN-SSO] Error: {e}")
+        flash("SSO login failed or token invalid.", "error")
+        return redirect(url_for('login'))
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
