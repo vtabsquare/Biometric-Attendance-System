@@ -257,55 +257,87 @@ def admin_sso():
     """
     SSO endpoint for HR Tool admins to access FaceAuth admin dashboard
     without re-entering credentials.
+    
+    URL: /admin-sso?token=<jwt_token>
     """
     token = request.args.get('token')
+    
     if not token:
-        flash("Missing SSO token.", "error")
-        return redirect(url_for('login'))
+        print("[ADMIN-SSO] No token provided")
+        return redirect('/login?error=missing_token')
     
     try:
+        # IMPORTANT: Use HS512 algorithm (same as HR Tool)
+        # IMPORTANT: JWT_SECRET_KEY must match HR Tool's id.env JWT_SECRET value
         SECRET_KEY = os.environ.get('JWT_SECRET_KEY', str(JWT_SECRET) if JWT_SECRET else 'fallback')
+        payload = jwt.decode(
+            token, 
+            SECRET_KEY,  # Must be same as HR Tool
+            algorithms=['HS512']  # HR Tool uses HS512
+        )
         
-        # Decode and validate the JWT token (Accepting both HS256/HS512 for cross-compatibility)
-        payload = jwt.decode(token, SECRET_KEY, algorithms=['HS256', 'HS512'])
+        # Debug logging
+        print(f"[ADMIN-SSO] Token decoded successfully")
+        print(f"[ADMIN-SSO] Payload: {payload}")
         
-        # Check if user has admin privileges (L3 role)
-        access_level = payload.get('access_level') or payload.get('role', '')
+        # Extract admin-related fields from HR Tool token
+        access_level = payload.get('access_level', '')
+        role = payload.get('role', '')
         is_admin = payload.get('is_admin', False)
         
-        if access_level != 'L3' and not is_admin:
-            flash("Not authorized for Admin Dashboard.", "error")
-            return redirect(url_for('login'))
+        print(f"[ADMIN-SSO] access_level={access_level}, role={role}, is_admin={is_admin}")
         
-        email = payload.get('email')
-        employee_id = payload.get('employee_id')
-        name = payload.get('name', 'Admin User')
+        # Check if user is admin (any of these conditions)
+        is_authorized = (
+            access_level == 'L3' or 
+            role == 'L3' or 
+            is_admin == True
+        )
         
-        # Create session mapping exact native FaceAuth structure
+        if not is_authorized:
+            print(f"[ADMIN-SSO] User not authorized - access_level={access_level}, role={role}, is_admin={is_admin}")
+            return redirect('/login?error=not_authorized')
+        
+        # Get user info from token
+        email = payload.get('email', '')
+        employee_id = payload.get('employee_id', '')
+        name = payload.get('name', '')
+        
+        print(f"[ADMIN-SSO] Authorizing admin: {name} ({email})")
+        
+        # Create session for this user (auto-login)
         session.clear()
         session.permanent = True
         app.permanent_session_lifetime = timedelta(minutes=120)
         
-        session.update({
-            'user_id': employee_id, # Surrogate for DV record
-            'first_name': name.split(' ')[0],
-            'last_name': name.split(' ')[-1] if ' ' in name else '',
-            'employee_id': employee_id,
-            'email': email,
-            'role': 'admin',
-            'verified': True,
-            'last_auth': time.time()
-        })
+        session['logged_in'] = True
+        session['user_email'] = email
+        session['employee_id'] = employee_id
+        session['user_name'] = name
+        session['is_admin'] = True
+        session['access_level'] = 'L3'
         
-        return redirect(url_for('admin_dashboard'))
+        # --- NATIVE FACEAUTH REQUIREMENTS ---
+        session['role'] = 'admin'
+        session['verified'] = True
+        session['user_id'] = employee_id
+        session['first_name'] = name.split(' ')[0] if name else 'Admin'
+        session['last_auth'] = time.time()
+        
+        print(f"[ADMIN-SSO] Session created, redirecting to admin dashboard")
+        
+        # Redirect directly to admin dashboard
+        return redirect('/admin/dashboard')
         
     except jwt.ExpiredSignatureError:
-        flash("SSO token expired.", "error")
-        return redirect(url_for('login'))
+        print("[ADMIN-SSO] Token expired")
+        return redirect('/login?error=token_expired')
+    except jwt.InvalidTokenError as e:
+        print(f"[ADMIN-SSO] Invalid token error: {e}")
+        return redirect('/login?error=invalid_token')
     except Exception as e:
-        print(f"[ADMIN-SSO] Error: {e}")
-        flash("SSO login failed or token invalid.", "error")
-        return redirect(url_for('login'))
+        print(f"[ADMIN-SSO] Unexpected error: {e}")
+        return redirect('/login?error=sso_failed')
 
 
 @app.route('/login', methods=['GET', 'POST'])
