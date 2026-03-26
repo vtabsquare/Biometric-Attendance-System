@@ -605,8 +605,13 @@ def admin_dashboard():
     if session.get('role') != 'admin': return redirect(url_for('login'))
     
     dv_employees = get_all_employees()
-    today = datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y-%m-%d")
-    dv_attendance = get_attendance_by_date(today)
+    
+    # Read requested date, fallback to today
+    requested_date = request.args.get('date')
+    if not requested_date:
+        requested_date = datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y-%m-%d")
+        
+    dv_attendance = get_attendance_by_date(requested_date)
     
     attendance_list = [_norm_attendance(a) for a in dv_attendance]
     
@@ -616,7 +621,7 @@ def admin_dashboard():
         emp['logs'] = [a for a in attendance_list if a['First Name'] == emp['First Name']]
         employee_list.append(emp)
     
-    return render_template('admin_dashboard.html', employees=employee_list)
+    return render_template('admin_dashboard.html', employees=employee_list, selected_date=requested_date)
 
 @app.route('/employee/dashboard')
 def employee_dashboard():

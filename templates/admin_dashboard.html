@@ -78,9 +78,15 @@
             <button class="btn-add" onclick="showAddModal()">+ Add Employee</button>
         </div>
 
-        <div class="search-container">
-            <span class="search-icon">🔍</span>
-            <input type="text" id="employeeSearch" class="search-input" placeholder="Search name or department..." onkeyup="filterEmployees()">
+        <div style="display: flex; gap: 20px; align-items: center; margin-bottom: 25px;">
+            <div class="search-container" style="flex: 1; margin: 0;">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="employeeSearch" class="search-input" placeholder="Search name or department..." onkeyup="filterEmployees()">
+            </div>
+            <div style="background: white; padding: 12px 20px; border-radius: 12px; border: 1px solid #e2e8f0; display: flex; align-items: center; gap: 10px; font-weight: 600; color: #475569; margin-left: auto;">
+                <span>📅 Date:</span>
+                <input type="date" id="historyDate" value="{{ selected_date }}" onchange="changeDate()" style="border: none; outline: none; font-weight: bold; color: #1e293b; background: transparent; cursor: pointer; font-family: inherit; font-size: 14px;">
+            </div>
         </div>
 
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -96,7 +102,7 @@
                 <thead>
                     <tr>
                         <th style="width: 25%;">Employee Profile</th>
-                        <th style="width: 40%;">Attendance Logs (Today)</th>
+                        <th style="width: 40%;">Attendance Logs ({{ selected_date }})</th>
                         <th style="width: 20%;">Current Status</th>
                         <th style="width: 15%;">Actions</th>
                     </tr>
@@ -219,6 +225,11 @@
     </div>
 
     <script>
+        function changeDate() {
+            const selectedDate = document.getElementById('historyDate').value;
+            window.location.href = `/admin/dashboard?date=${selectedDate}`;
+        }
+
         function confirmDelete(id, name) {
             if (confirm(`STOP! Are you sure you want to delete ${name}?\n\nThis will PERMANENTLY delete their user account AND all historical attendance logs.`)) {
                 window.location.href = "/delete_employee/" + id;
