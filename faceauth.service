@@ -1,0 +1,27 @@
+# Systemd service file for FaceAuth
+# Copy to: /etc/systemd/system/faceauth.service
+# Then: sudo systemctl daemon-reload
+#       sudo systemctl enable faceauth
+#       sudo systemctl start faceauth
+
+[Unit]
+Description=FaceAuth Biometric Attendance System
+After=network.target
+
+[Service]
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/faceauth
+Environment="PATH=/var/www/faceauth/venv/bin"
+EnvironmentFile=/var/www/faceauth/.env
+ExecStart=/var/www/faceauth/venv/bin/gunicorn --config gunicorn.conf.py app:app
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=always
+RestartSec=5
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -71,6 +71,7 @@ SENDER_EMAIL = os.getenv("SENDER_EMAIL")
 COMPANY_NAME = os.getenv("COMPANY_NAME")
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL") # Ensure this is in your .env
 JWT_SECRET = os.getenv("JWT_SECRET") # Shared secret for HR Tool JWTs
+FACEAUTH_BASE_URL = os.getenv("FACEAUTH_BASE_URL", "https://biometric-attendance-system-tsca.onrender.com")  # Production URL
 
 # --- NEW: LOCATION MISMATCH HELPERS ---
 
@@ -756,7 +757,7 @@ def add_employee():
             magic_token = magic_token.decode('utf-8')
         
         encoded_token = urllib.parse.quote(magic_token, safe='')
-        reg_link = f"https://biometric-attendance-system-tsca.onrender.com/magic-register?token={encoded_token}"
+        reg_link = f"{FACEAUTH_BASE_URL}/magic-register?token={encoded_token}"
         
         email_html = f"""
         <div style="background-color: #121212; color: #ffffff; padding: 40px; font-family: sans-serif; border-radius: 10px;">
@@ -808,6 +809,66 @@ def logout():
     session.clear()
     return redirect(url_for('index'))
 
+@app.route('/forgot-password')
+def forgot_password():
+    return render_template('forgot_password.html')
+
+otp_store = {}
+
+@app.route('/send-otp', methods=['POST'])
+def send_otp():
+    data = request.get_json()
+    email = data.get('email', '').strip().lower()
+    
+    if not email:
+        return jsonify({"success": False, "message": "Email required"})
+    
+    dv_user = get_user_by_email(email)
+    if not dv_user:
+        return jsonify({"success": False, "message": "Email not found"})
+    
+    otp = ''.join(random.choices(string.digits, k=6))
+    otp_store[email] = {'otp': otp, 'expires': time.time() + 600}
+    
+    html_content = f"""
+    <div style="font-family: sans-serif; padding: 20px;">
+        <h2>Password Reset Code</h2>
+        <p>Your verification code is:</p>
+        <h1 style="color: #2563eb; letter-spacing: 8px;">{otp}</h1>
+        <p>This code expires in 10 minutes.</p>
+    </div>
+    """
+    
+    if send_email_via_brevo(email, "Password Reset Code", html_content):
+        return jsonify({"success": True})
+    return jsonify({"success": False, "message": "Failed to send email"})
+
+@app.route('/verify-otp', methods=['POST'])
+def verify_otp():
+    data = request.get_json()
+    email = data.get('email', '').strip().lower()
+    otp = data.get('otp', '')
+    
+    stored = otp_store.get(email)
+    if not stored:
+        return jsonify({"success": False, "message": "No OTP found. Please request again."})
+    
+    if time.time() > stored['expires']:
+        del otp_store[email]
+        return jsonify({"success": False, "message": "OTP expired. Please request again."})
+    
+    if stored['otp'] != otp:
+        return jsonify({"success": False, "message": "Invalid OTP"})
+    
+    dv_user = get_user_by_email(email)
+    if dv_user:
+        session['user_id'] = dv_user.get(USERS_ID_FIELD)
+        session['otp_verified'] = True
+        del otp_store[email]
+        return jsonify({"success": True})
+    
+    return jsonify({"success": False, "message": "User not found"})
+
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host='0.0.0.0', port=port)
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host='127.0.0.1', port=port)

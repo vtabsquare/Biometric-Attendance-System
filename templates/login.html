@@ -24,7 +24,7 @@
           {% endif %}
         {% endwith %}
 
-        <form action="https://biometric-attendance-system-tsca.onrender.com/login" method="POST">
+        <form action="{{ url_for('login') }}" method="POST">
             <div class="form-group">
                 <label>Work Email</label>
                 <input type="email" name="email" placeholder="name@company.com" required>
@@ -33,7 +33,7 @@
             <div class="form-group">
                 <div style="display:flex; justify-content:space-between;">
                     <label>Password</label>
-                    <a href="https://biometric-attendance-system-tsca.onrender.com/forgot-password" style="font-size:11px; font-weight:700; color:var(--primary); text-decoration:none;">FORGOT?</a>
+                    <a href="/forgot-password" style="font-size:11px; font-weight:700; color:var(--primary); text-decoration:none;">FORGOT?</a>
                 </div>
                 <div class="input-container">
                     <input type="password" name="password" id="login_pw" placeholder="••••••••" required>

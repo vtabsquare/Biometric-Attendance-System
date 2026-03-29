@@ -4,3 +4,8 @@ venv/
 face_data/
 google_creds.json
 *.pyc
+*.log
+*.pid
+.DS_Store
+*.swp
+*.swo
