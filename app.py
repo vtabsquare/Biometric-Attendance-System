@@ -155,6 +155,17 @@ def is_password_strong(password):
 
 def send_email_via_brevo(to_email, subject, html_content):
     url = "https://api.brevo.com/v3/smtp/email"
+    
+    if not BREVO_API_KEY:
+        print("[EMAIL ERROR] BREVO_API_KEY is not set")
+        return False
+    if not SENDER_EMAIL:
+        print("[EMAIL ERROR] SENDER_EMAIL is not set")
+        return False
+    if not COMPANY_NAME:
+        print("[EMAIL ERROR] COMPANY_NAME is not set")
+        return False
+    
     headers = {"accept": "application/json", "api-key": BREVO_API_KEY, "content-type": "application/json"}
     payload = {
         "sender": {"name": COMPANY_NAME, "email": SENDER_EMAIL},
@@ -164,8 +175,14 @@ def send_email_via_brevo(to_email, subject, html_content):
     }
     try:
         response = requests.post(url, json=payload, headers=headers)
-        return response.status_code in [200, 201, 202]
-    except:
+        if response.status_code in [200, 201, 202]:
+            print(f"[EMAIL SUCCESS] Email sent to {to_email}")
+            return True
+        else:
+            print(f"[EMAIL ERROR] Failed to send email to {to_email}. Status: {response.status_code}, Response: {response.text}")
+            return False
+    except Exception as e:
+        print(f"[EMAIL ERROR] Exception sending email to {to_email}: {e}")
         return False
 
 def _generate_employee_id(email: str) -> str:
@@ -769,8 +786,11 @@ def add_employee():
             <a href="{reg_link}" style="display: inline-block; background-color: #4c8bf5; color: white; padding: 16px 32px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">Register Face Now</a>
         </div>
         """
-        send_email_via_brevo(e, "Account Ready - Action Required", email_html)
-        flash(f"Employee {f} added!", "success")
+        email_sent = send_email_via_brevo(e, "Account Ready - Action Required", email_html)
+        if email_sent:
+            flash(f"Employee {f} added and invite email sent!", "success")
+        else:
+            flash(f"Employee {f} added but email failed to send. Check server logs.", "warning")
     except Exception as err:
         print(f"Add employee error: {err}")
         flash(f"Error: {err}", "error")
