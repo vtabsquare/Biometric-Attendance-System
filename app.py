@@ -223,11 +223,20 @@ def external_verify():
         if not employee_id:
             return jsonify({"error": "Invalid or expired token"}), 400
         
-        # Store in session
+        # Fetch user from Dataverse to get correct name
+        dv_user = get_user_by_employeeid(employee_id)
+        if not dv_user:
+            return jsonify({"error": f"User with Employee ID {employee_id} not found"}), 404
+        
+        user = _norm_user(dv_user)
+        
+        # Clear session and store correct user info
+        session.clear()
         session['pending_token'] = token
         session['callback_url'] = callback_url
         session['employee_id'] = employee_id
         session['external_auth'] = True
+        session['first_name'] = user['First Name']
 
         return redirect("/verify-face")
 
