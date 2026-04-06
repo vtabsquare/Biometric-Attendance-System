@@ -71,6 +71,8 @@ def create_user(first_name: str, last_name: str, email: str,
         "crc6f_employeeid": employee_id,
         "crc6f_status": status,
         "crc6f_faceencoding1": "",
+        "crc6f_allowmobile": True,
+        "crc6f_allowdesktop": True,
     }
     return create_record(USERS_TABLE, data)
 

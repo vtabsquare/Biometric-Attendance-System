@@ -34,6 +34,16 @@
         const urlParams = new URLSearchParams(window.location.search);
         const mode = urlParams.get('mode') || '{{ mode }}';
 
+        // --- DEVICE DETECTION ---
+        function getDeviceType() {
+            const ua = navigator.userAgent;
+            if (/Mobi|Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(ua) || window.innerWidth < 768) {
+                return "Mobile";
+            }
+            return "Desktop";
+        }
+        const deviceType = getDeviceType();
+
         let detailedLocation = "Unknown District, India"; 
         let mapsUrl = "Location Hidden";
         
@@ -207,7 +217,7 @@
             context.drawImage(video, 0, 0);
             const imageData = canvas.toDataURL('image/jpeg');
 
-            // Send to Backend
+            // Send to Backend with device info
             fetch('/process_verification', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -217,7 +227,9 @@
                     lat: currentLat,
                     lon: currentLon,
                     location: mapsUrl,
-                    detailed_location: detailedLocation 
+                    detailed_location: detailedLocation,
+                    device_type: deviceType,
+                    user_agent: navigator.userAgent
                 })
             })
             .then(res => {
@@ -254,8 +266,10 @@
                     btn.disabled = false;
                     status.style.color = "#ea4335";
                     
-                    // Display explicit backend errors if provided
-                    if (data.error) {
+                    // Handle device blocked response
+                    if (data.blocked === true) {
+                        status.innerText = data.message || "Device not allowed for face verification.";
+                    } else if (data.error) {
                         status.innerText = data.error;
                     } else if (data.message && data.message.toLowerCase().includes('session')) {
                         status.innerText = "Session expired. Redirecting to login...";

@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Device Access Control - FaceAuth</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='241') }}">
+    <style>
+        :root { --primary: #1a73e8; --bg: #f8fafc; --sidebar: #ffffff; }
+        body { display: flex; background: var(--bg); margin: 0; font-family: 'Inter', sans-serif; height: 100vh; overflow: hidden; }
+        
+        .sidebar { width: 260px; background: var(--sidebar); height: 100vh; border-right: 1px solid #e2e8f0; padding: 30px; position: fixed; display: flex; flex-direction: column; z-index: 10; }
+        .logo { display: flex; align-items: center; gap: 12px; margin-bottom: 50px; }
+        .logo-icon { background: var(--primary); color: white; padding: 10px 14px; border-radius: 10px; font-weight: 800; font-size: 20px; }
+        .logo-text { font-size: 22px; font-weight: 700; color: #1e293b; }
+        .nav-item { color: #64748b; font-weight: 600; text-decoration: none; padding: 14px 18px; border-radius: 10px; margin-bottom: 10px; display: flex; align-items: center; gap: 10px; transition: 0.2s; }
+        .nav-item:hover { background: #f1f5f9; color: #1e293b; }
+        .nav-item.active { color: var(--primary); background: #eff6ff; }
+        .logout-link { margin-top: auto; color: #ef4444; text-decoration: none; font-weight: 600; padding: 14px; display: block; }
+
+        .main-content { margin-left: 260px; padding: 40px; width: calc(100% - 270px); height: 100vh; overflow-y: auto; box-sizing: border-box; }
+        
+        .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; }
+        
+        .dashboard-card { background: white; border-radius: 24px; padding: 30px; box-shadow: 0 4px 25px rgba(0,0,0,0.03); border: 1px solid #edf2f7; }
+        
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; color: #94a3b8; font-size: 11px; text-transform: uppercase; padding: 15px; border-bottom: 1px solid #f1f5f9; }
+        td { padding: 20px 15px; border-bottom: 1px solid #f8fafc; vertical-align: middle; }
+        
+        .toggle-switch { position: relative; display: inline-block; width: 50px; height: 26px; }
+        .toggle-switch input { opacity: 0; width: 0; height: 0; }
+        .toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: 0.3s; border-radius: 26px; }
+        .toggle-slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 3px; bottom: 3px; background-color: white; transition: 0.3s; border-radius: 50%; }
+        input:checked + .toggle-slider { background-color: #10b981; }
+        input:checked + .toggle-slider:before { transform: translateX(24px); }
+        input:disabled + .toggle-slider { opacity: 0.5; cursor: not-allowed; }
+        
+        .status-badge { padding: 4px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; }
+        .status-badge.saving { background: #fef3c7; color: #d97706; }
+        .status-badge.saved { background: #dcfce7; color: #166534; }
+        .status-badge.error { background: #fee2e2; color: #991b1b; }
+        
+        .info-box { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 16px 20px; margin-bottom: 25px; display: flex; align-items: center; gap: 12px; }
+        .info-box span { color: #1e40af; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div class="sidebar">
+        <div class="logo">
+            <span class="logo-icon">F</span>
+            <span class="logo-text">FaceAuth</span>
+        </div>
+        <nav style="flex: 1;">
+            <a href="/admin/dashboard" class="nav-item">📋 Employees</a>
+            <a href="/admin/device-control" class="nav-item active">📱 Device Control</a>
+        </nav>
+        <a href="/logout" class="logout-link">Logout</a>
+    </div>
+
+    <div class="main-content">
+        <div class="header">
+            <div>
+                <h1>Device Access Control</h1>
+                <p style="color:#64748b">Manage which devices employees can use for face verification</p>
+            </div>
+        </div>
+
+        <div class="info-box">
+            <span>💡</span>
+            <span>Toggle switches to allow or block face verification on specific device types. Changes are saved automatically.</span>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <div style="background: {{ '#dcfce7' if category == 'success' else '#fee2e2' }}; color: {{ '#166534' if category == 'success' else '#991b1b' }}; padding:15px; border-radius:12px; margin-bottom:25px; font-weight:600;">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <div class="dashboard-card">
+            <table id="deviceTable">
+                <thead>
+                    <tr>
+                        <th style="width: 35%;">Employee</th>
+                        <th style="width: 20%;">Employee ID</th>
+                        <th style="width: 20%;">Allow Mobile</th>
+                        <th style="width: 20%;">Allow Desktop</th>
+                        <th style="width: 5%;">Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for emp in employees %}
+                    <tr data-record-id="{{ emp.record_id }}">
+                        <td>
+                            <strong style="font-size: 15px;">{{ emp['First Name'] }} {{ emp['Last Name'] }}</strong><br>
+                            <span style="color:#94a3b8; font-size:12px;">{{ emp['Email'] }}</span>
+                        </td>
+                        <td>
+                            <span style="color:#64748b; font-weight: 600;">{{ emp['EmployeeID'] }}</span>
+                        </td>
+                        <td>
+                            <label class="toggle-switch">
+                                <input type="checkbox" 
+                                       id="mobile_{{ emp.record_id }}" 
+                                       {{ 'checked' if emp['AllowMobile'] else '' }}
+                                       onchange="updateDeviceSetting('{{ emp.record_id }}', 'allowmobile', this.checked)">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </td>
+                        <td>
+                            <label class="toggle-switch">
+                                <input type="checkbox" 
+                                       id="desktop_{{ emp.record_id }}" 
+                                       {{ 'checked' if emp['AllowDesktop'] else '' }}
+                                       onchange="updateDeviceSetting('{{ emp.record_id }}', 'allowdesktop', this.checked)">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </td>
+                        <td>
+                            <span id="status_{{ emp.record_id }}" class="status-badge" style="display: none;"></span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        async function updateDeviceSetting(recordId, field, value) {
+            const statusEl = document.getElementById(`status_${recordId}`);
+            const mobileToggle = document.getElementById(`mobile_${recordId}`);
+            const desktopToggle = document.getElementById(`desktop_${recordId}`);
+            
+            // Show saving status
+            statusEl.style.display = 'inline-block';
+            statusEl.className = 'status-badge saving';
+            statusEl.innerText = 'Saving...';
+            
+            // Disable toggles while saving
+            mobileToggle.disabled = true;
+            desktopToggle.disabled = true;
+            
+            try {
+                const response = await fetch('/api/device-settings/update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        record_id: recordId,
+                        field: field,
+                        value: value
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    statusEl.className = 'status-badge saved';
+                    statusEl.innerText = 'Saved';
+                    setTimeout(() => { statusEl.style.display = 'none'; }, 2000);
+                } else {
+                    statusEl.className = 'status-badge error';
+                    statusEl.innerText = 'Error';
+                    // Revert the toggle
+                    if (field === 'allowmobile') {
+                        mobileToggle.checked = !value;
+                    } else {
+                        desktopToggle.checked = !value;
+                    }
+                }
+            } catch (err) {
+                console.error('Update error:', err);
+                statusEl.className = 'status-badge error';
+                statusEl.innerText = 'Error';
+                // Revert the toggle
+                if (field === 'allowmobile') {
+                    mobileToggle.checked = !value;
+                } else {
+                    desktopToggle.checked = !value;
+                }
+            } finally {
+                // Re-enable toggles
+                mobileToggle.disabled = false;
+                desktopToggle.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>

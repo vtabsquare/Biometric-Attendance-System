@@ -28,6 +28,7 @@ from dataverse_service import (
     create_user,
     update_user_face_encoding,
     update_user_password,
+    update_user_fields,
     get_all_employees,
     delete_user,
     create_attendance,
@@ -120,6 +121,8 @@ def _norm_user(dv_record: dict) -> dict:
         'Status': dv_record.get('crc6f_status', ''),
         'EmployeeID': dv_record.get('crc6f_employeeid', ''),
         'record_id': dv_record.get(USERS_ID_FIELD, ''),
+        'AllowMobile': dv_record.get('crc6f_allowmobile', True),
+        'AllowDesktop': dv_record.get('crc6f_allowdesktop', True),
     }
 
 def _norm_attendance(dv_record: dict) -> dict:
@@ -466,6 +469,10 @@ def process_verification():
     # Extract Raw Coordinates for Mismatch Check
     lat = data.get('lat')
     lon = data.get('lon')
+    
+    # --- DEVICE DETECTION & RESTRICTION ---
+    device_type = data.get('device_type', 'Desktop')
+    user_agent = data.get('user_agent', '')
 
     try:
         if session.get('external_auth'):
@@ -481,6 +488,26 @@ def process_verification():
                 raise Exception("User record not found")
                 
         user = _norm_user(dv_user)
+        
+        # --- CHECK DEVICE RESTRICTIONS ---
+        allow_mobile = user.get('AllowMobile', True)
+        allow_desktop = user.get('AllowDesktop', True)
+        
+        if device_type == 'Mobile' and not allow_mobile:
+            print(f"[DEVICE BLOCKED] {user['First Name']} - Mobile not allowed")
+            return jsonify({
+                "success": False, 
+                "blocked": True,
+                "message": "Face verification is not allowed on mobile devices for your account."
+            })
+        
+        if device_type == 'Desktop' and not allow_desktop:
+            print(f"[DEVICE BLOCKED] {user['First Name']} - Desktop not allowed")
+            return jsonify({
+                "success": False,
+                "blocked": True, 
+                "message": "Face verification is not allowed on desktop devices for your account."
+            })
         stored_enc = np.array(json.loads(user['FaceEncoding']))
         img_data = base64.b64decode(data['image'].split(',')[1])
         img = cv2.imdecode(np.frombuffer(img_data, np.uint8), cv2.IMREAD_COLOR)
@@ -888,6 +915,76 @@ def verify_otp():
         return jsonify({"success": True})
     
     return jsonify({"success": False, "message": "User not found"})
+
+# --- DEVICE CONTROL MODULE ---
+
+@app.route('/admin/device-control')
+def device_control():
+    if session.get('role') != 'admin': 
+        return redirect(url_for('login'))
+    
+    try:
+        raw_employees = get_all_employees()
+        employees = []
+        for emp in raw_employees:
+            normalized = _norm_user(emp)
+            employees.append(normalized)
+        
+        employees.sort(key=lambda x: x.get('First Name', '').lower())
+        return render_template('device_control.html', employees=employees)
+    except Exception as e:
+        print(f"Device control error: {e}")
+        flash("Error loading device settings.", "error")
+        return redirect(url_for('admin_dashboard'))
+
+@app.route('/api/device-settings', methods=['GET'])
+def get_device_settings():
+    if session.get('role') != 'admin':
+        return jsonify({"success": False, "message": "Unauthorized"}), 401
+    
+    try:
+        raw_employees = get_all_employees()
+        settings = []
+        for emp in raw_employees:
+            normalized = _norm_user(emp)
+            settings.append({
+                "record_id": normalized['record_id'],
+                "employee_id": normalized['EmployeeID'],
+                "name": f"{normalized['First Name']} {normalized['Last Name']}",
+                "email": normalized['Email'],
+                "allowmobile": normalized.get('AllowMobile', True),
+                "allowdesktop": normalized.get('AllowDesktop', True)
+            })
+        return jsonify({"success": True, "data": settings})
+    except Exception as e:
+        print(f"Get device settings error: {e}")
+        return jsonify({"success": False, "message": str(e)}), 500
+
+@app.route('/api/device-settings/update', methods=['POST'])
+def update_device_settings():
+    if session.get('role') != 'admin':
+        return jsonify({"success": False, "message": "Unauthorized"}), 401
+    
+    try:
+        data = request.get_json()
+        record_id = data.get('record_id')
+        field = data.get('field')
+        value = data.get('value')
+        
+        if not record_id or field not in ['allowmobile', 'allowdesktop']:
+            return jsonify({"success": False, "message": "Invalid parameters"}), 400
+        
+        # Map field to Dataverse column name
+        dv_field = f"crc6f_{field}"
+        
+        # Update the user record
+        update_user_fields(record_id, {dv_field: value})
+        
+        print(f"[DEVICE SETTINGS] Updated {field}={value} for record {record_id}")
+        return jsonify({"success": True})
+    except Exception as e:
+        print(f"Update device settings error: {e}")
+        return jsonify({"success": False, "message": str(e)}), 500
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 8080))
