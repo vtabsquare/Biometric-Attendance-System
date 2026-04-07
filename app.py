@@ -527,11 +527,17 @@ def process_verification():
     if not has_new_signals:
         # Fallback: Old frontend still sending device_type - use user_agent detection
         ua = data.get('user_agent', '').lower()
-        if 'mobile' in ua or 'android' in ua or 'iphone' in ua:
+        # Check for mobile keywords in user agent
+        ua_is_mobile = ('mobile' in ua or 'android' in ua or 'iphone' in ua or 
+                        'ipad' in ua or 'ipod' in ua)
+        # Also check old device_type field if present
+        old_device_type = data.get('device_type', '').lower()
+        
+        if ua_is_mobile or old_device_type == 'mobile':
             device_type = "Mobile"
         else:
             device_type = "Desktop"
-        print(f"[DEVICE DETECTION] FALLBACK mode - Type: {device_type}")
+        print(f"[DEVICE DETECTION] FALLBACK mode - Type: {device_type}, UA mobile: {ua_is_mobile}, old_device_type: {old_device_type}")
     else:
         device_type = detect_device(data)
     
