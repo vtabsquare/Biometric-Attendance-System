@@ -123,7 +123,9 @@ def delete_user(record_id: str):
 def create_attendance(first_name: str, last_name: str, date_str: str,
                       login_time: str, status: str,
                       login_location: str, employee_id: str,
-                      logout_time: str = "", logout_location: str = ""):
+                      logout_time: str = "", logout_location: str = "",
+                      device_type: str = "", user_agent: str = "",
+                      verification_status: str = "", block_reason: str = ""):
     """
     Create a new attendance record.
     Returns the created record dict.
@@ -140,6 +142,11 @@ def create_attendance(first_name: str, last_name: str, date_str: str,
     # Only add optional fields if they have a non-empty value
     if logout_time: data["crc6f_logouttime"] = logout_time
     if logout_location: data["crc6f_logoutlocation"] = logout_location
+    # Device logging fields (requires Dataverse columns to be created)
+    if device_type: data["crc6f_devicetype"] = device_type
+    if user_agent: data["crc6f_useragent"] = user_agent[:500]  # Truncate long UA strings
+    if verification_status: data["crc6f_verificationstatus"] = verification_status
+    if block_reason: data["crc6f_blockreason"] = block_reason
     
     return create_record(ATTENDANCE_TABLE, data)
 

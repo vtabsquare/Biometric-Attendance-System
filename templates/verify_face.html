@@ -35,15 +35,16 @@
         const mode = urlParams.get('mode') || '{{ mode }}';
         const requireGPS = {{ 'true' if require_gps else 'false' }};
 
-        // --- DEVICE DETECTION ---
-        function getDeviceType() {
-            const ua = navigator.userAgent;
-            if (/Mobi|Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(ua) || window.innerWidth < 768) {
-                return "Mobile";
-            }
-            return "Desktop";
+        // --- DEVICE SIGNALS (Multi-signal for bypass-proof detection) ---
+        function getDeviceSignals() {
+            return {
+                user_agent: navigator.userAgent,
+                screen_width: window.innerWidth,
+                screen_height: window.innerHeight,
+                is_touch: navigator.maxTouchPoints > 0 || 'ontouchstart' in window
+            };
         }
-        const deviceType = getDeviceType();
+        const deviceSignals = getDeviceSignals();
 
         let detailedLocation = "Unknown District, India"; 
         let mapsUrl = "Location Hidden";
@@ -215,7 +216,7 @@
         function doVerification() {
             btn.disabled = true;
             status.style.color = "#5f6368";
-            status.innerText = "Processing Face & Location...";
+            status.innerText = "Processing Face...";
             
             const context = canvas.getContext('2d');
             canvas.width = video.videoWidth;
@@ -223,7 +224,7 @@
             context.drawImage(video, 0, 0);
             const imageData = canvas.toDataURL('image/jpeg');
 
-            // Send to Backend with device info
+            // Send to Backend with device signals (multi-signal for bypass-proof detection)
             fetch('/process_verification', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -234,12 +235,14 @@
                     lon: currentLon,
                     location: mapsUrl,
                     detailed_location: detailedLocation,
-                    device_type: deviceType,
-                    user_agent: navigator.userAgent
+                    // Device signals for backend detection
+                    user_agent: deviceSignals.user_agent,
+                    screen_width: deviceSignals.screen_width,
+                    screen_height: deviceSignals.screen_height,
+                    is_touch: deviceSignals.is_touch
                 })
             })
             .then(res => {
-                // Keep handling session expiry redirects gracefully
                 if (res.redirected) {
                     window.location.href = '/login';
                     return null;

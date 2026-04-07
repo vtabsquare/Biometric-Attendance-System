@@ -150,6 +150,29 @@ def _norm_attendance(dv_record: dict) -> dict:
     }
 
 # --- HELPERS (Existing) ---
+def detect_device(data):
+    """
+    Secure multi-signal device detection (bypass-proof).
+    Uses user_agent + screen_width + is_touch to determine device type.
+    This prevents bypass using "Request Desktop Site" on mobile browsers.
+    """
+    ua = data.get('user_agent', '').lower()
+    width = data.get('screen_width', 1024)
+    is_touch = data.get('is_touch', False)
+    
+    # Multi-signal detection logic
+    if (
+        'mobile' in ua or
+        'android' in ua or
+        'iphone' in ua or
+        'ipad' in ua or
+        'ipod' in ua or
+        (is_touch and width < 800)
+    ):
+        return "Mobile"
+    
+    return "Desktop"
+
 def is_password_strong(password):
     if len(password) < 8: return False
     if not re.search(r"[A-Z]", password): return False
@@ -482,9 +505,12 @@ def process_verification():
     lat = data.get('lat')
     lon = data.get('lon')
     
-    # --- DEVICE DETECTION & RESTRICTION ---
-    device_type = data.get('device_type', 'Desktop')
+    # --- SECURE DEVICE DETECTION (Bypass-proof) ---
+    # DO NOT trust frontend device_type - use multi-signal detection
+    device_type = detect_device(data)
     user_agent = data.get('user_agent', '')
+    
+    print(f"[DEVICE DETECTION] Type: {device_type}, UA: {user_agent[:50]}..., Width: {data.get('screen_width')}, Touch: {data.get('is_touch')}")
 
     try:
         if session.get('external_auth'):
@@ -501,12 +527,34 @@ def process_verification():
                 
         user = _norm_user(dv_user)
         
+        IST = pytz.timezone('Asia/Kolkata')
+        now = datetime.now(IST)
+        today = now.strftime("%Y-%m-%d")
+        cur_time_iso = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+        
         # --- CHECK DEVICE RESTRICTIONS ---
         allow_mobile = user.get('AllowMobile', True)
         allow_desktop = user.get('AllowDesktop', True)
         
         if device_type == 'Mobile' and not allow_mobile:
             print(f"[DEVICE BLOCKED] {user['First Name']} - Mobile not allowed")
+            # Log blocked attempt to Dataverse
+            try:
+                create_attendance(
+                    first_name=user['First Name'],
+                    last_name=user['Last Name'],
+                    date_str=today,
+                    login_time=cur_time_iso,
+                    status="Blocked",
+                    login_location=full_loc_string,
+                    employee_id=user['EmployeeID'],
+                    device_type=device_type,
+                    user_agent=user_agent,
+                    verification_status="Blocked",
+                    block_reason="Mobile device not allowed"
+                )
+            except Exception as log_err:
+                print(f"[LOG ERROR] Failed to log blocked attempt: {log_err}")
             return jsonify({
                 "success": False, 
                 "blocked": True,
@@ -515,6 +563,23 @@ def process_verification():
         
         if device_type == 'Desktop' and not allow_desktop:
             print(f"[DEVICE BLOCKED] {user['First Name']} - Desktop not allowed")
+            # Log blocked attempt to Dataverse
+            try:
+                create_attendance(
+                    first_name=user['First Name'],
+                    last_name=user['Last Name'],
+                    date_str=today,
+                    login_time=cur_time_iso,
+                    status="Blocked",
+                    login_location=full_loc_string,
+                    employee_id=user['EmployeeID'],
+                    device_type=device_type,
+                    user_agent=user_agent,
+                    verification_status="Blocked",
+                    block_reason="Desktop device not allowed"
+                )
+            except Exception as log_err:
+                print(f"[LOG ERROR] Failed to log blocked attempt: {log_err}")
             return jsonify({
                 "success": False,
                 "blocked": True, 
