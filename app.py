@@ -520,10 +520,23 @@ def process_verification():
     
     # --- SECURE DEVICE DETECTION (Bypass-proof) ---
     # DO NOT trust frontend device_type - use multi-signal detection
-    device_type = detect_device(data)
-    user_agent = data.get('user_agent', '')
+    # Check if new signals are present (indicates new frontend is deployed)
+    has_new_signals = 'screen_width' in data and 'is_touch' in data
+    print(f"[FRONTEND CHECK] Has new signals: {has_new_signals}, Keys received: {list(data.keys())}")
     
-    print(f"[DEVICE DETECTION] Type: {device_type}, UA: {user_agent[:50]}..., Width: {data.get('screen_width')}, Touch: {data.get('is_touch')}")
+    if not has_new_signals:
+        # Fallback: Old frontend still sending device_type - use user_agent detection
+        ua = data.get('user_agent', '').lower()
+        if 'mobile' in ua or 'android' in ua or 'iphone' in ua:
+            device_type = "Mobile"
+        else:
+            device_type = "Desktop"
+        print(f"[DEVICE DETECTION] FALLBACK mode - Type: {device_type}")
+    else:
+        device_type = detect_device(data)
+    
+    user_agent = data.get('user_agent', '')
+    print(f"[DEVICE DETECTION] Type: {device_type}, UA: {user_agent[:80] if user_agent else 'N/A'}, Width: {data.get('screen_width')}, Touch: {data.get('is_touch')}")
 
     try:
         if session.get('external_auth'):
