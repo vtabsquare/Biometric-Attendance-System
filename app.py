@@ -160,17 +160,30 @@ def detect_device(data):
     width = data.get('screen_width', 1024)
     is_touch = data.get('is_touch', False)
     
+    print(f"[DETECT_DEVICE] Raw signals - UA: {ua[:100]}, Width: {width}, Touch: {is_touch}")
+    
     # Multi-signal detection logic
-    if (
+    # Priority 1: Check user agent for mobile keywords
+    ua_is_mobile = (
         'mobile' in ua or
         'android' in ua or
         'iphone' in ua or
         'ipad' in ua or
         'ipod' in ua or
-        (is_touch and width < 800)
-    ):
+        'webos' in ua or
+        'blackberry' in ua or
+        'opera mini' in ua or
+        'iemobile' in ua
+    )
+    
+    # Priority 2: Small screen + touch = mobile (catches "Desktop Site" bypass)
+    screen_is_mobile = is_touch and width < 800
+    
+    if ua_is_mobile or screen_is_mobile:
+        print(f"[DETECT_DEVICE] Result: Mobile (ua_mobile={ua_is_mobile}, screen_mobile={screen_is_mobile})")
         return "Mobile"
     
+    print(f"[DETECT_DEVICE] Result: Desktop")
     return "Desktop"
 
 def is_password_strong(password):
@@ -533,8 +546,16 @@ def process_verification():
         cur_time_iso = now.strftime("%Y-%m-%dT%H:%M:%SZ")
         
         # --- CHECK DEVICE RESTRICTIONS ---
-        allow_mobile = user.get('AllowMobile', True)
-        allow_desktop = user.get('AllowDesktop', True)
+        allow_mobile = user.get('AllowMobile')
+        allow_desktop = user.get('AllowDesktop')
+        
+        # Handle None/null values - default to True only if explicitly None
+        if allow_mobile is None:
+            allow_mobile = True
+        if allow_desktop is None:
+            allow_desktop = True
+            
+        print(f"[DEVICE CHECK] User: {user['First Name']}, Device: {device_type}, AllowMobile: {allow_mobile}, AllowDesktop: {allow_desktop}")
         
         if device_type == 'Mobile' and not allow_mobile:
             print(f"[DEVICE BLOCKED] {user['First Name']} - Mobile not allowed")
