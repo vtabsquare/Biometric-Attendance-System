@@ -525,21 +525,14 @@ def process_verification():
     print(f"[FRONTEND CHECK] Has new signals: {has_new_signals}, Keys received: {list(data.keys())}")
     
     if not has_new_signals:
-        # Fallback: Old frontend still sending device_type - use user_agent detection
-        ua = data.get('user_agent', '').lower()
-        # Check for mobile keywords in user agent
-        ua_is_mobile = ('mobile' in ua or 'android' in ua or 'iphone' in ua or 
-                        'ipad' in ua or 'ipod' in ua)
-        # Also check old device_type field if present
-        old_device_type = data.get('device_type', '').lower()
-        
-        if ua_is_mobile or old_device_type == 'mobile':
-            device_type = "Mobile"
-        else:
-            device_type = "Desktop"
-        print(f"[DEVICE DETECTION] FALLBACK mode - Type: {device_type}, UA mobile: {ua_is_mobile}, old_device_type: {old_device_type}")
-    else:
-        device_type = detect_device(data)
+        print("[SECURITY BLOCK] Missing required device signals. Possible stale/cached frontend.")
+        return jsonify({
+            "success": False,
+            "blocked": True,
+            "message": "Security update required. Please refresh the page and try again. If issue continues, clear browser cache."
+        })
+
+    device_type = detect_device(data)
     
     user_agent = data.get('user_agent', '')
     print(f"[DEVICE DETECTION] Type: {device_type}, UA: {user_agent[:80] if user_agent else 'N/A'}, Width: {data.get('screen_width')}, Touch: {data.get('is_touch')}")
