@@ -1069,16 +1069,21 @@ def update_device_settings():
         field = data.get('field')
         value = data.get('value')
         
+        print(f"[DEVICE SETTINGS] Received update request: record_id={record_id}, field={field}, value={value}, type={type(value)}")
+        
         if not record_id or field not in ['allowmobile', 'allowdesktop', 'requiregps']:
             return jsonify({"success": False, "message": "Invalid parameters"}), 400
         
         # Map field to Dataverse column name
         dv_field = f"crc6f_{field}"
         
-        # Update the user record
-        update_user_fields(record_id, {dv_field: value})
+        # Ensure value is boolean
+        bool_value = bool(value) if value is not None else False
         
-        print(f"[DEVICE SETTINGS] Updated {field}={value} for record {record_id}")
+        # Update the user record
+        result = update_user_fields(record_id, {dv_field: bool_value})
+        
+        print(f"[DEVICE SETTINGS] Updated {dv_field}={bool_value} for record {record_id}, result={result}")
         return jsonify({"success": True})
     except Exception as e:
         print(f"Update device settings error: {e}")
