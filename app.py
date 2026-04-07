@@ -123,6 +123,7 @@ def _norm_user(dv_record: dict) -> dict:
         'record_id': dv_record.get(USERS_ID_FIELD, ''),
         'AllowMobile': dv_record.get('crc6f_allowmobile', True),
         'AllowDesktop': dv_record.get('crc6f_allowdesktop', True),
+        'RequireGPS': dv_record.get('crc6f_requiregps', True),
     }
 
 def _norm_attendance(dv_record: dict) -> dict:
@@ -237,6 +238,7 @@ def external_verify():
         session['employee_id'] = employee_id
         session['external_auth'] = True
         session['first_name'] = user['First Name']
+        session['require_gps'] = user.get('RequireGPS', True)
 
         return redirect("/verify-face")
 
@@ -455,8 +457,9 @@ def verify_face():
     print("SESSION IN VERIFY PAGE:", dict(session))
     
     display_name = session.get('first_name') or session.get('employee_id') or "User"
-    mode = request.args.get('mode', 'login') 
-    return render_template('verify_face.html', name=display_name, mode=mode)
+    mode = request.args.get('mode', 'login')
+    require_gps = session.get('require_gps', True)
+    return render_template('verify_face.html', name=display_name, mode=mode, require_gps=require_gps)
 
 @app.route('/process_verification', methods=['POST'])
 def process_verification():
@@ -980,7 +983,7 @@ def update_device_settings():
         field = data.get('field')
         value = data.get('value')
         
-        if not record_id or field not in ['allowmobile', 'allowdesktop']:
+        if not record_id or field not in ['allowmobile', 'allowdesktop', 'requiregps']:
             return jsonify({"success": False, "message": "Invalid parameters"}), 400
         
         # Map field to Dataverse column name

@@ -21,7 +21,7 @@
         <video id="video" autoplay muted playsinline></video>
         <canvas id="canvas" style="display:none;"></canvas>
         
-        <button id="verifyBtn" class="btn-verify">Verify Identity & Location</button>
+        <button id="verifyBtn" class="btn-verify">{{ 'Verify Identity & Location' if require_gps else 'Verify Identity' }}</button>
         <p id="status">Initializing Camera...</p>
     </div>
 
@@ -33,6 +33,7 @@
         
         const urlParams = new URLSearchParams(window.location.search);
         const mode = urlParams.get('mode') || '{{ mode }}';
+        const requireGPS = {{ 'true' if require_gps else 'false' }};
 
         // --- DEVICE DETECTION ---
         function getDeviceType() {
@@ -69,7 +70,10 @@
         let cameraReady = false;
         function updateStatusIfReady() {
             cameraReady = true;
-            if (gpsReady) {
+            if (!requireGPS) {
+                status.innerText = "Camera Ready. Press button to scan.";
+                status.style.color = "#34a853";
+            } else if (gpsReady) {
                 status.innerText = "Camera & GPS Ready. Press button to scan.";
                 status.style.color = "#34a853";
             } else {
@@ -166,12 +170,14 @@
         }
 
         // Start GPS tracking immediately
-        startGPSTracking();
+        if (requireGPS) {
+            startGPSTracking();
+        }
 
         // --- Button Click Handler with GPS retry ---
         btn.onclick = () => {
-            // If GPS not ready, retry and inform user
-            if (!currentLat || !currentLon) {
+            // If GPS is required and not ready, retry and inform user
+            if (requireGPS && (!currentLat || !currentLon)) {
                 status.innerText = "Acquiring GPS signal... Please wait.";
                 status.style.color = "#f4b400";
                 btn.disabled = true;

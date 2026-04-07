@@ -73,6 +73,7 @@ def create_user(first_name: str, last_name: str, email: str,
         "crc6f_faceencoding1": "",
         "crc6f_allowmobile": True,
         "crc6f_allowdesktop": True,
+        "crc6f_requiregps": True,
     }
     return create_record(USERS_TABLE, data)
 

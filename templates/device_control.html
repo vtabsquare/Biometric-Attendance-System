@@ -82,11 +82,12 @@
             <table id="deviceTable">
                 <thead>
                     <tr>
-                        <th style="width: 35%;">Employee</th>
-                        <th style="width: 20%;">Employee ID</th>
-                        <th style="width: 20%;">Allow Mobile</th>
-                        <th style="width: 20%;">Allow Desktop</th>
-                        <th style="width: 5%;">Status</th>
+                        <th style="width: 25%;">Employee</th>
+                        <th style="width: 15%;">Employee ID</th>
+                        <th style="width: 15%;">Allow Mobile</th>
+                        <th style="width: 15%;">Allow Desktop</th>
+                        <th style="width: 15%;">Require GPS</th>
+                        <th style="width: 15%;">Status</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -118,6 +119,15 @@
                             </label>
                         </td>
                         <td>
+                            <label class="toggle-switch">
+                                <input type="checkbox" 
+                                       id="gps_{{ emp.record_id }}" 
+                                       {{ 'checked' if emp['RequireGPS'] else '' }}
+                                       onchange="updateDeviceSetting('{{ emp.record_id }}', 'requiregps', this.checked)">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </td>
+                        <td>
                             <span id="status_{{ emp.record_id }}" class="status-badge" style="display: none;"></span>
                         </td>
                     </tr>
@@ -132,15 +142,17 @@
             const statusEl = document.getElementById(`status_${recordId}`);
             const mobileToggle = document.getElementById(`mobile_${recordId}`);
             const desktopToggle = document.getElementById(`desktop_${recordId}`);
+            const gpsToggle = document.getElementById(`gps_${recordId}`);
             
             // Show saving status
             statusEl.style.display = 'inline-block';
             statusEl.className = 'status-badge saving';
             statusEl.innerText = 'Saving...';
             
-            // Disable toggles while saving
+            // Disable all toggles while saving
             mobileToggle.disabled = true;
             desktopToggle.disabled = true;
+            gpsToggle.disabled = true;
             
             try {
                 const response = await fetch('/api/device-settings/update', {
@@ -163,26 +175,23 @@
                     statusEl.className = 'status-badge error';
                     statusEl.innerText = 'Error';
                     // Revert the toggle
-                    if (field === 'allowmobile') {
-                        mobileToggle.checked = !value;
-                    } else {
-                        desktopToggle.checked = !value;
-                    }
+                    if (field === 'allowmobile') mobileToggle.checked = !value;
+                    else if (field === 'allowdesktop') desktopToggle.checked = !value;
+                    else if (field === 'requiregps') gpsToggle.checked = !value;
                 }
             } catch (err) {
                 console.error('Update error:', err);
                 statusEl.className = 'status-badge error';
                 statusEl.innerText = 'Error';
                 // Revert the toggle
-                if (field === 'allowmobile') {
-                    mobileToggle.checked = !value;
-                } else {
-                    desktopToggle.checked = !value;
-                }
+                if (field === 'allowmobile') mobileToggle.checked = !value;
+                else if (field === 'allowdesktop') desktopToggle.checked = !value;
+                else if (field === 'requiregps') gpsToggle.checked = !value;
             } finally {
-                // Re-enable toggles
+                // Re-enable all toggles
                 mobileToggle.disabled = false;
                 desktopToggle.disabled = false;
+                gpsToggle.disabled = false;
             }
         }
     </script>
