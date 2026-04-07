@@ -176,11 +176,20 @@ def detect_device(data):
         'iemobile' in ua
     )
     
-    # Priority 2: Small screen + touch = mobile (catches "Desktop Site" bypass)
-    screen_is_mobile = is_touch and width < 800
-    
-    if ua_is_mobile or screen_is_mobile:
-        print(f"[DETECT_DEVICE] Result: Mobile (ua_mobile={ua_is_mobile}, screen_mobile={screen_is_mobile})")
+    # Priority 2: Touch + mobile-ish viewport = mobile (catches Desktop Site mode)
+    # In Desktop Site mode on Android, UA may look desktop and width is often ~980.
+    touch_viewport_mobile = is_touch and width <= 1100
+
+    # Priority 3: Desktop-looking UA on touch device is suspicious; treat as mobile.
+    desktop_ua_tokens = ('x11', 'linux x86_64', 'windows nt', 'macintosh')
+    desktop_ua_on_touch = is_touch and any(tok in ua for tok in desktop_ua_tokens)
+
+    if ua_is_mobile or touch_viewport_mobile or desktop_ua_on_touch:
+        print(
+            "[DETECT_DEVICE] Result: Mobile "
+            f"(ua_mobile={ua_is_mobile}, touch_viewport_mobile={touch_viewport_mobile}, "
+            f"desktop_ua_on_touch={desktop_ua_on_touch})"
+        )
         return "Mobile"
     
     print(f"[DETECT_DEVICE] Result: Desktop")
