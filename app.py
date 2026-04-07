@@ -1045,6 +1045,8 @@ def get_device_settings():
         settings = []
         for emp in raw_employees:
             normalized = _norm_user(emp)
+            # Debug: log raw values from Dataverse
+            print(f"[DEBUG] Raw DV for {normalized['First Name']}: allowmobile={emp.get('crc6f_allowmobile')}, allowdesktop={emp.get('crc6f_allowdesktop')}")
             settings.append({
                 "record_id": normalized['record_id'],
                 "employee_id": normalized['EmployeeID'],
@@ -1057,6 +1059,26 @@ def get_device_settings():
     except Exception as e:
         print(f"Get device settings error: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
+
+@app.route('/api/debug/user/<employee_id>', methods=['GET'])
+def debug_user_settings(employee_id):
+    """Debug endpoint to check raw Dataverse values for a user"""
+    try:
+        dv_user = get_user_by_employeeid(employee_id)
+        if not dv_user:
+            return jsonify({"error": "User not found"}), 404
+        
+        return jsonify({
+            "raw_dataverse": {
+                "crc6f_firstname": dv_user.get('crc6f_firstname'),
+                "crc6f_allowmobile": dv_user.get('crc6f_allowmobile'),
+                "crc6f_allowdesktop": dv_user.get('crc6f_allowdesktop'),
+                "crc6f_requiregps": dv_user.get('crc6f_requiregps'),
+            },
+            "normalized": _norm_user(dv_user)
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/device-settings/update', methods=['POST'])
 def update_device_settings():
