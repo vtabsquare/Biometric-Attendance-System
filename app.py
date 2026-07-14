@@ -106,7 +106,7 @@ limiter = Limiter(
 @app.after_request
 def set_security_headers(response):
     response.headers['X-Content-Type-Options'] = 'nosniff'
-    response.headers['X-Frame-Options'] = 'DENY'
+    # Removed X-Frame-Options to allow framing via CSP
     response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
     response.headers['Permissions-Policy'] = 'camera=(self), geolocation=(self), microphone=()'
     response.headers['Content-Security-Policy'] = (
@@ -116,7 +116,7 @@ def set_security_headers(response):
         "font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; "
         "img-src 'self' data: https://www.google.com; "
         "connect-src 'self' https://nominatim.openstreetmap.org; "
-        "frame-ancestors 'none';"
+        "frame-ancestors 'self' https://officehub360.vtabsquare.com;"
     )
     # Cache control for authenticated pages
     if request.endpoint and request.endpoint not in ('static', 'index', 'health_check', 'privacy_policy'):
