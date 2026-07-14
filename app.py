@@ -4,15 +4,19 @@ import base64
 import cv2
 import face_recognition
 import numpy as np
-import random
+import secrets
 import time
 import requests
 import re
 import json
 import string
 import sys
+import logging
 from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
 from flask_cors import CORS
+from flask_wtf.csrf import CSRFProtect
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
 import pytz
@@ -56,23 +60,104 @@ os.environ["DLIB_USE_CUDA"] = "0"
 
 # --- INITIALIZATION ---
 load_dotenv()
-app = Flask(__name__)
-app.secret_key = os.getenv("FLASK_SECRET", "default-fallback-secret-key-1234")
 
-# Important for cross-site iframe/redirect context cookies
+# --- Logging Configuration ---
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger('faceauth')
+
+app = Flask(__name__)
+
+# SECURITY: Secret key must be set via environment variable — no weak fallback
+_flask_secret = os.getenv("FLASK_SECRET")
+if not _flask_secret or _flask_secret == "your-super-secret-key-change-this":
+    logger.critical("FLASK_SECRET is not set or is using the example value. Generating a random key for this run.")
+    _flask_secret = secrets.token_hex(32)
+app.secret_key = _flask_secret
+
+# Session cookie security (SameSite=Lax allows top-level navigations for SSO/external flows)
 app.config.update(
-    SESSION_COOKIE_SAMESITE='None',
-    SESSION_COOKIE_SECURE=True
+    SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_COOKIE_SECURE=True,
+    SESSION_COOKIE_HTTPONLY=True,
+    WTF_CSRF_TIME_LIMIT=3600,
+)
+app.permanent_session_lifetime = timedelta(minutes=30)
+
+# CSRF Protection (JSON API endpoints are exempted below)
+csrf = CSRFProtect(app)
+
+# CORS: restrict to application origin only
+_cors_origin = os.getenv("FACEAUTH_BASE_URL", "https://biometric-attendance-system-tsca.onrender.com")
+CORS(app, origins=[_cors_origin], supports_credentials=True)
+
+# Rate Limiting
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["200 per hour"],
+    storage_uri="memory://",
 )
 
-CORS(app) 
+# --- Security Headers Middleware ---
+@app.after_request
+def set_security_headers(response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    response.headers['Permissions-Policy'] = 'camera=(self), geolocation=(self), microphone=()'
+    response.headers['Content-Security-Policy'] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; "
+        "font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; "
+        "img-src 'self' data: https://www.google.com; "
+        "connect-src 'self' https://nominatim.openstreetmap.org; "
+        "frame-ancestors 'none';"
+    )
+    # Cache control for authenticated pages
+    if request.endpoint and request.endpoint not in ('static', 'index', 'health_check', 'privacy_policy'):
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+    return response
+
+# --- Account Lockout Store ---
+login_attempts = {}  # {email: {'count': int, 'locked_until': float}}
+LOCKOUT_THRESHOLD = 5
+LOCKOUT_DURATION = 900  # 15 minutes in seconds
+
+# --- OTP Attempt Tracking ---
+otp_attempts = {}  # {email: int}
+OTP_MAX_ATTEMPTS = 5
 
 BREVO_API_KEY = os.getenv("BREVO_API_KEY")
 SENDER_EMAIL = os.getenv("SENDER_EMAIL")
 COMPANY_NAME = os.getenv("COMPANY_NAME")
-ADMIN_EMAIL = os.getenv("ADMIN_EMAIL") # Ensure this is in your .env
-JWT_SECRET = os.getenv("JWT_SECRET") # Shared secret for HR Tool JWTs
-FACEAUTH_BASE_URL = os.getenv("FACEAUTH_BASE_URL", "https://biometric-attendance-system-tsca.onrender.com")  # Production URL
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL")
+JWT_SECRET = os.getenv("JWT_SECRET")
+FACEAUTH_BASE_URL = os.getenv("FACEAUTH_BASE_URL", "https://biometric-attendance-system-tsca.onrender.com")
+
+# SECURITY: JWT secret must be set via environment — no weak fallback
+def _get_jwt_secret():
+    """Get JWT secret key, failing loudly if not configured."""
+    secret = os.environ.get('JWT_SECRET_KEY') or JWT_SECRET
+    if not secret:
+        logger.critical("JWT_SECRET / JWT_SECRET_KEY is not configured. JWT operations will fail.")
+        raise RuntimeError("JWT secret not configured")
+    return str(secret)
+
+# --- PII Masking Helper ---
+def _mask_email(email: str) -> str:
+    """Mask email for safe logging: a***z@domain.com"""
+    if not email or '@' not in email:
+        return '***'
+    local, domain = email.split('@', 1)
+    if len(local) <= 2:
+        return f"{local[0]}***@{domain}"
+    return f"{local[0]}***{local[-1]}@{domain}"
 
 # --- NEW: LOCATION MISMATCH HELPERS ---
 
@@ -86,7 +171,8 @@ def get_distance_meters(lat1, lon1, lat2, lon2):
         dlon = math.radians(lon2 - lon1)
         a = (math.sin(dlat / 2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2)**2)
         return radius * (2 * math.atan2(math.sqrt(a), math.sqrt(1 - a)))
-    except:
+    except (TypeError, ValueError) as e:
+        logger.warning("Distance calculation error: %s", type(e).__name__)
         return 0
 
 def send_location_alert_email(user_email, name, dist, login_pos, logout_pos):
@@ -135,7 +221,8 @@ def _norm_attendance(dv_record: dict) -> dict:
             if 'T' in str(val):
                 return str(val).split('T')[1].replace('Z', '').split('+')[0][:8]
             return str(val)
-        except:
+        except Exception as e:
+            logger.debug("Date parse error: %s", type(e).__name__)
             return str(val)
     return {
         'First Name': dv_record.get('crc6f_firstname', ''),
@@ -160,7 +247,7 @@ def detect_device(data):
     width = data.get('screen_width', 1024)
     is_touch = data.get('is_touch', False)
     
-    print(f"[DETECT_DEVICE] Raw signals - UA: {ua[:100]}, Width: {width}, Touch: {is_touch}")
+    logger.debug("Device detection — Width: %s, Touch: %s", width, is_touch)
     
     # Multi-signal detection logic
     # Priority 1: Check user agent for mobile keywords
@@ -177,7 +264,6 @@ def detect_device(data):
     )
     
     # Priority 2: Touch + mobile-ish viewport = mobile (catches Desktop Site mode)
-    # In Desktop Site mode on Android, UA may look desktop and width is often ~980.
     touch_viewport_mobile = is_touch and width <= 1100
 
     # Priority 3: Desktop-looking UA on touch device is suspicious; treat as mobile.
@@ -185,18 +271,17 @@ def detect_device(data):
     desktop_ua_on_touch = is_touch and any(tok in ua for tok in desktop_ua_tokens)
 
     if ua_is_mobile or touch_viewport_mobile or desktop_ua_on_touch:
-        print(
-            "[DETECT_DEVICE] Result: Mobile "
-            f"(ua_mobile={ua_is_mobile}, touch_viewport_mobile={touch_viewport_mobile}, "
-            f"desktop_ua_on_touch={desktop_ua_on_touch})"
-        )
+        logger.debug("Device detected: Mobile")
         return "Mobile"
     
-    print(f"[DETECT_DEVICE] Result: Desktop")
+    logger.debug("Device detected: Desktop")
     return "Desktop"
 
 def is_password_strong(password):
-    if len(password) < 8: return False
+    """Validate password meets security requirements: 12-128 chars, upper, lower, digit, special."""
+    if len(password) < 12: return False
+    if len(password) > 128: return False
+    if not re.search(r"[a-z]", password): return False
     if not re.search(r"[A-Z]", password): return False
     if not re.search(r"\d", password): return False
     if not re.search(r"[@$!%*?&#]", password): return False
@@ -206,13 +291,13 @@ def send_email_via_brevo(to_email, subject, html_content):
     url = "https://api.brevo.com/v3/smtp/email"
     
     if not BREVO_API_KEY:
-        print("[EMAIL ERROR] BREVO_API_KEY is not set")
+        logger.error("BREVO_API_KEY is not set")
         return False
     if not SENDER_EMAIL:
-        print("[EMAIL ERROR] SENDER_EMAIL is not set")
+        logger.error("SENDER_EMAIL is not set")
         return False
     if not COMPANY_NAME:
-        print("[EMAIL ERROR] COMPANY_NAME is not set")
+        logger.error("COMPANY_NAME is not set")
         return False
     
     headers = {"accept": "application/json", "api-key": BREVO_API_KEY, "content-type": "application/json"}
@@ -223,15 +308,15 @@ def send_email_via_brevo(to_email, subject, html_content):
         "htmlContent": html_content
     }
     try:
-        response = requests.post(url, json=payload, headers=headers)
+        response = requests.post(url, json=payload, headers=headers, timeout=30)
         if response.status_code in [200, 201, 202]:
-            print(f"[EMAIL SUCCESS] Email sent to {to_email}")
+            logger.info("Email sent to %s", _mask_email(to_email))
             return True
         else:
-            print(f"[EMAIL ERROR] Failed to send email to {to_email}. Status: {response.status_code}, Response: {response.text}")
+            logger.error("Failed to send email. Status: %s", response.status_code)
             return False
     except Exception as e:
-        print(f"[EMAIL ERROR] Exception sending email to {to_email}: {e}")
+        logger.error("Exception sending email: %s", type(e).__name__)
         return False
 
 def _generate_employee_id(email: str) -> str:
@@ -242,6 +327,10 @@ def _generate_employee_id(email: str) -> str:
 @app.route('/')
 def index(): 
     return render_template('landing.html')
+
+@app.route('/privacy-policy')
+def privacy_policy():
+    return render_template('privacy_policy.html')
 
 @app.route('/health')
 def health_check():
@@ -258,6 +347,10 @@ def external_verify():
 
     if not token or not callback_url:
         return jsonify({"error": "Invalid or expired token"}), 400
+        
+    parsed_url = urllib.parse.urlparse(callback_url)
+    if parsed_url.scheme not in ['http', 'https'] or not parsed_url.netloc:
+        return jsonify({"error": "Invalid callback URL"}), 400
 
     try:
         SECRET_KEY = os.environ.get('JWT_SECRET_KEY', str(JWT_SECRET) if JWT_SECRET else 'fallback')
@@ -380,7 +473,7 @@ def admin_sso():
         employee_id = payload.get('employee_id', '')
         name = payload.get('name', '')
         
-        print(f"[ADMIN-SSO] Authorizing admin: {name} ({email})")
+        logger.info("[ADMIN-SSO] Authorizing admin SSO login")
         
         # Create session for this user (auto-login)
         session.clear()
@@ -418,14 +511,26 @@ def admin_sso():
 
 
 @app.route('/login', methods=['GET', 'POST'])
+@limiter.limit("10 per minute", methods=["POST"])
 def login():
     if request.method == 'POST':
         email = request.form.get('email', '').strip().lower()
         password = request.form.get('password', '').strip()
+        
+        # Check Account Lockout
+        lockout = login_attempts.get(email)
+        if lockout and lockout['count'] >= LOCKOUT_THRESHOLD:
+            if time.time() < lockout['locked_until']:
+                flash("Account locked due to too many failed attempts. Try again in 15 minutes.", "error")
+                return render_template('login.html')
+            else:
+                # Reset after duration expired
+                login_attempts.pop(email, None)
+                
         try:
             dv_user = get_user_by_email(email)
             if not dv_user:
-                flash("User not found.", "error")
+                flash("Invalid email or password.", "error")
                 return render_template('login.html')
             
             user = _norm_user(dv_user)
@@ -435,9 +540,10 @@ def login():
                 return redirect(url_for('login'))
             
             if check_password_hash(user['Password'], password):
+                login_attempts.pop(email, None) # Clear attempts on success
                 session.clear()
                 session.permanent = True
-                app.permanent_session_lifetime = timedelta(minutes=1) # TESTING: 1 min (change back to 120 for production)
+                app.permanent_session_lifetime = timedelta(minutes=30)
                 session.update({
                     'user_id': user['record_id'],
                     'first_name': user['First Name'], 
@@ -461,10 +567,18 @@ def login():
                 
                 return redirect(url_for('verify_face'))
             else:
-                flash("Invalid credentials.", "error")
+                # Increment failed attempts
+                attempt = login_attempts.get(email, {'count': 0, 'locked_until': 0})
+                attempt['count'] += 1
+                if attempt['count'] >= LOCKOUT_THRESHOLD:
+                    attempt['locked_until'] = time.time() + LOCKOUT_DURATION
+                login_attempts[email] = attempt
+                
+                # Security: Prevent username enumeration (same error as not found)
+                flash("Invalid email or password.", "error")
         except Exception as e:
-            print(f"Login error: {e}")
-            flash("User not found.", "error")
+            logger.error("Login error: %s", type(e).__name__)
+            flash("Invalid email or password.", "error")
     return render_template('login.html')
 
 @app.route('/reset-password')
@@ -499,7 +613,7 @@ def verify_face():
     if 'user_id' not in session and not session.get('external_auth'): 
         return redirect(url_for('login'))
         
-    print("SESSION IN VERIFY PAGE:", dict(session))
+    logger.debug("SESSION IN VERIFY PAGE")
     
     display_name = session.get('first_name') or session.get('employee_id') or "User"
     mode = request.args.get('mode', 'login')
@@ -507,8 +621,10 @@ def verify_face():
     return render_template('verify_face.html', name=display_name, mode=mode, require_gps=require_gps)
 
 @app.route('/process_verification', methods=['POST'])
+@csrf.exempt
+@limiter.limit("15 per minute")
 def process_verification():
-    print("SESSION IN VERIFY:", dict(session))
+    logger.debug("Processing verification for user_id=%s", session.get('user_id'))
     
     if "external_auth" not in session:
         print("WARNING: external_auth missing")
@@ -576,10 +692,10 @@ def process_verification():
         if allow_desktop is None:
             allow_desktop = True
             
-        print(f"[DEVICE CHECK] User: {user['First Name']}, Device: {device_type}, AllowMobile: {allow_mobile}, AllowDesktop: {allow_desktop}")
+        logger.info(f"[DEVICE CHECK] Device: {device_type}, AllowMobile: {allow_mobile}, AllowDesktop: {allow_desktop}")
         
         if device_type == 'Mobile' and not allow_mobile:
-            print(f"[DEVICE BLOCKED] {user['First Name']} - Mobile not allowed")
+            logger.warning("[DEVICE BLOCKED] Mobile not allowed")
             # Log blocked attempt to Dataverse
             try:
                 create_attendance(
@@ -604,7 +720,7 @@ def process_verification():
             })
         
         if device_type == 'Desktop' and not allow_desktop:
-            print(f"[DEVICE BLOCKED] {user['First Name']} - Desktop not allowed")
+            logger.warning("[DEVICE BLOCKED] Desktop not allowed")
             # Log blocked attempt to Dataverse
             try:
                 create_attendance(
@@ -658,7 +774,7 @@ def process_verification():
                                     coords = login_loc_str.split("q=")[-1].split(',')
                                     login_lat = float(coords[0])
                                     login_lon = float(coords[1])
-                                except: pass
+                                except Exception: pass
                             
                             if login_lat is not None and login_lon is not None:
                                 distance = get_distance_meters(login_lat, login_lon, lat, lon)
@@ -690,7 +806,7 @@ def process_verification():
                     
                     new_payload = original_claims.copy()
                     new_payload['face_verified'] = True
-                    new_payload['exp'] = datetime.utcnow() + timedelta(hours=12)
+                    new_payload['exp'] = datetime.utcnow() + timedelta(hours=1)
                     
                     new_token = jwt.encode(new_payload, SECRET_KEY, algorithm="HS512")
                     if isinstance(new_token, bytes):
@@ -723,7 +839,8 @@ def process_verification():
                             coords = login_loc_str.split("q=")[-1].split(',')
                             login_lat = float(coords[0])
                             login_lon = float(coords[1])
-                        except:
+                        except Exception as e:
+                            logger.debug("Location parse error: %s", type(e).__name__)
                             pass
                     
                     if login_lat is not None and login_lon is not None:
@@ -779,7 +896,8 @@ def prepare_logout():
                 "crc6f_logouttime": cur_time_iso,
             })
         return jsonify({"success": True})
-    except:
+    except Exception as e:
+        logger.error("Prepare logout error: %s", type(e).__name__)
         return jsonify({"success": False})
 
 @app.route('/auto_logout_record', methods=['POST'])
@@ -807,7 +925,8 @@ def auto_logout_record():
                 update_data["crc6f_logoutlocation"] = full_loc_string
             update_attendance(open_rec[ATTENDANCE_ID_FIELD], update_data)
         return jsonify({"success": True})
-    except:
+    except Exception as e:
+        logger.error("Auto logout error: %s", type(e).__name__)
         return jsonify({"success": False})
 
 @app.route('/start_meeting', methods=['POST'])
@@ -815,6 +934,11 @@ def start_meeting():
     if 'user_id' not in session: return jsonify({"success": False})
     data = request.get_json()
     duration = int(data.get('duration', 10)) 
+    
+    # Validate meeting duration (min 5, max 480 minutes)
+    if duration < 5: duration = 5
+    if duration > 480: duration = 480
+    
     try:
         dv_user = get_user_by_id(session.get('user_id'))
         user = _norm_user(dv_user)
@@ -847,7 +971,8 @@ def start_meeting():
         app.permanent_session_lifetime = timedelta(seconds=(duration * 60))
         session['last_auth'] = time.time()
         return jsonify({"success": True})
-    except:
+    except Exception as e:
+        logger.error("Start meeting error: %s", type(e).__name__)
         return jsonify({"success": False})
 
 # --- DASHBOARDS ---
@@ -913,7 +1038,7 @@ def add_employee():
         magic_payload = {
             "employee_id": employee_id,
             "action": "register",
-            "exp": datetime.utcnow() + timedelta(days=7)
+            "exp": datetime.utcnow() + timedelta(hours=24)
         }
         magic_token = jwt.encode(magic_payload, SECRET_KEY, algorithm="HS512")
         if isinstance(magic_token, bytes):
@@ -942,7 +1067,7 @@ def add_employee():
         flash(f"Error: {err}", "error")
     return redirect(url_for('admin_dashboard'))
 
-@app.route('/delete_employee/<record_id>')
+@app.route('/delete_employee/<record_id>', methods=['POST'])
 def delete_employee(record_id):
     if session.get('role') != 'admin': return redirect(url_for('login'))
     try:
@@ -951,9 +1076,10 @@ def delete_employee(record_id):
         first_name = user['First Name']
         delete_attendance_by_employee(first_name)
         delete_user(record_id)
+        logger.info("Admin deleted employee: %s", first_name)
         flash(f"Employee {first_name} and records deleted.", "success")
     except Exception as e:
-        print(f"Delete error: {e}")
+        logger.error("Delete error: %s", type(e).__name__)
         flash("Error during deletion.", "error")
     return redirect(url_for('admin_dashboard'))
 
@@ -967,6 +1093,7 @@ def update_password():
         return redirect(url_for('reset_password_page'))
     
     update_user_password(record_id, generate_password_hash(new_pass), status=False)
+    session.clear()
     flash("Success! Please login.", "success")
     return redirect(url_for('login'))
 
@@ -982,6 +1109,8 @@ def forgot_password():
 otp_store = {}
 
 @app.route('/send-otp', methods=['POST'])
+@csrf.exempt
+@limiter.limit("5 per minute")
 def send_otp():
     data = request.get_json()
     email = data.get('email', '').strip().lower()
@@ -990,10 +1119,11 @@ def send_otp():
         return jsonify({"success": False, "message": "Email required"})
     
     dv_user = get_user_by_email(email)
+    # Generic message for enumeration prevention
     if not dv_user:
         return jsonify({"success": False, "message": "Email not found"})
     
-    otp = ''.join(random.choices(string.digits, k=6))
+    otp = ''.join(secrets.choice(string.digits) for _ in range(6))
     otp_store[email] = {'otp': otp, 'expires': time.time() + 600}
     
     html_content = f"""
@@ -1010,6 +1140,8 @@ def send_otp():
     return jsonify({"success": False, "message": "Failed to send email"})
 
 @app.route('/verify-otp', methods=['POST'])
+@csrf.exempt
+@limiter.limit("10 per minute")
 def verify_otp():
     data = request.get_json()
     email = data.get('email', '').strip().lower()
@@ -1018,6 +1150,14 @@ def verify_otp():
     stored = otp_store.get(email)
     if not stored:
         return jsonify({"success": False, "message": "No OTP found. Please request again."})
+        
+    attempts = otp_attempts.get(email, 0)
+    if attempts >= OTP_MAX_ATTEMPTS:
+        del otp_store[email]
+        del otp_attempts[email]
+        return jsonify({"success": False, "message": "Maximum attempts exceeded. Please request a new OTP."})
+        
+    otp_attempts[email] = attempts + 1
     
     if time.time() > stored['expires']:
         del otp_store[email]
@@ -1025,6 +1165,8 @@ def verify_otp():
     
     if stored['otp'] != otp:
         return jsonify({"success": False, "message": "Invalid OTP"})
+        
+    otp_attempts.pop(email, None) # Clear attempts on success
     
     dv_user = get_user_by_email(email)
     if dv_user:
@@ -1066,8 +1208,7 @@ def get_device_settings():
         settings = []
         for emp in raw_employees:
             normalized = _norm_user(emp)
-            # Debug: log raw values from Dataverse
-            print(f"[DEBUG] Raw DV for {normalized['First Name']}: allowmobile={emp.get('crc6f_allowmobile')}, allowdesktop={emp.get('crc6f_allowdesktop')}")
+            logger.debug("[DEBUG] Raw DV allowmobile=%s, allowdesktop=%s", emp.get('crc6f_allowmobile'), emp.get('crc6f_allowdesktop'))
             settings.append({
                 "record_id": normalized['record_id'],
                 "employee_id": normalized['EmployeeID'],
@@ -1081,25 +1222,6 @@ def get_device_settings():
         print(f"Get device settings error: {e}")
         return jsonify({"success": False, "message": str(e)}), 500
 
-@app.route('/api/debug/user/<employee_id>', methods=['GET'])
-def debug_user_settings(employee_id):
-    """Debug endpoint to check raw Dataverse values for a user"""
-    try:
-        dv_user = get_user_by_employeeid(employee_id)
-        if not dv_user:
-            return jsonify({"error": "User not found"}), 404
-        
-        return jsonify({
-            "raw_dataverse": {
-                "crc6f_firstname": dv_user.get('crc6f_firstname'),
-                "crc6f_allowmobile": dv_user.get('crc6f_allowmobile'),
-                "crc6f_allowdesktop": dv_user.get('crc6f_allowdesktop'),
-                "crc6f_requiregps": dv_user.get('crc6f_requiregps'),
-            },
-            "normalized": _norm_user(dv_user)
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/device-settings/update', methods=['POST'])
 def update_device_settings():

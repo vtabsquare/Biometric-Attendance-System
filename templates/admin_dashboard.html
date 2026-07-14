@@ -192,6 +192,7 @@
         <div class="modal-content">
             <h2 style="margin-top:0; text-align: center;">Add New Employee</h2>
             <form action="/add_employee" method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <input type="text" name="first_name" placeholder="First Name" required>
                 <input type="text" name="last_name" placeholder="Last Name" required>
                 <input type="email" name="email" placeholder="Email Address" required>
@@ -212,6 +213,7 @@
         <div class="modal-content">
             <h2 style="margin-top:0; text-align: center;">Edit Profile</h2>
             <form id="editForm" method="POST">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                 <input type="text" name="first_name" id="edit_f" required>
                 <input type="text" name="last_name" id="edit_l" required>
                 <select name="department" id="edit_d" required>
@@ -225,6 +227,10 @@
         </div>
     </div>
 
+    <form id="deleteForm" method="POST" style="display:none;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+    </form>
+
     <script>
         function changeDate() {
             const selectedDate = document.getElementById('historyDate').value;
@@ -233,7 +239,9 @@
 
         function confirmDelete(id, name) {
             if (confirm(`STOP! Are you sure you want to delete ${name}?\n\nThis will PERMANENTLY delete their user account AND all historical attendance logs.`)) {
-                window.location.href = "/delete_employee/" + id;
+                const form = document.getElementById('deleteForm');
+                form.action = "/delete_employee/" + id;
+                form.submit();
             }
         }
         function filterEmployees() {

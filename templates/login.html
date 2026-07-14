@@ -25,6 +25,7 @@
         {% endwith %}
 
         <form action="{{ url_for('login') }}" method="POST">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
             <div class="form-group">
                 <label>Work Email</label>
                 <input type="email" name="email" placeholder="name@company.com" required>
@@ -48,6 +49,7 @@
             
             <button type="submit" class="btn-primary">Sign In →</button>
         </form>
+        <p style="margin-top:24px; font-size:12px; color:#94a3b8;">By signing in, you agree to our <a href="/privacy-policy" style="color:var(--primary); text-decoration:none; font-weight:600;">Privacy Policy</a></p>
     </div>
 
     <script>

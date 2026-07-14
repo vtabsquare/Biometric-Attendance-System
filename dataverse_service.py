@@ -15,6 +15,20 @@ ATTENDANCE_TABLE = "crc6f_hr_faceappattendances"
 ATTENDANCE_ID_FIELD = "crc6f_hr_faceappattendanceid"
 
 
+# -------------------- OData Injection Prevention --------------------
+
+def _sanitize_odata(value: str) -> str:
+    """Escape single quotes in user-supplied values for OData filter expressions.
+    
+    OData uses single quotes to delimit string values. An unescaped single quote
+    in user input can break out of the string context and inject filter logic.
+    The OData spec escapes single quotes by doubling them: ' → ''
+    """
+    if not isinstance(value, str):
+        return str(value)
+    return value.replace("'", "''")
+
+
 # ==================== USER FUNCTIONS ====================
 
 def get_user_by_email(email: str):
@@ -22,9 +36,10 @@ def get_user_by_email(email: str):
     Look up a user by email address (case-insensitive OData filter).
     Returns the user dict or None if not found.
     """
+    safe_email = _sanitize_odata(email.lower())
     records = query_records(
         USERS_TABLE,
-        filter_query=f"crc6f_email eq '{email.lower()}'",
+        filter_query=f"crc6f_email eq '{safe_email}'",
     )
     return records[0] if records else None
 
@@ -45,8 +60,8 @@ def get_user_by_employeeid(employee_id: str):
     if not employee_id:
         raise Exception("Employee ID missing in query")
         
-    filter_str = f"crc6f_employeeid eq '{employee_id}'"
-    print("QUERY FILTER:", filter_str)
+    safe_id = _sanitize_odata(employee_id)
+    filter_str = f"crc6f_employeeid eq '{safe_id}'"
     
     records = query_records(
         USERS_TABLE,
@@ -157,11 +172,13 @@ def find_open_attendance(first_name: str, date_str: str):
     logout time is empty (i.e., the user hasn't logged out yet).
     Returns the record dict or None.
     """
+    safe_name = _sanitize_odata(first_name)
+    safe_date = _sanitize_odata(date_str)
     records = query_records(
         ATTENDANCE_TABLE,
         filter_query=(
-            f"crc6f_firstname eq '{first_name}' "
-            f"and crc6f_date eq '{date_str}' "
+            f"crc6f_firstname eq '{safe_name}' "
+            f"and crc6f_date eq '{safe_date}' "
             f"and crc6f_logouttime eq null"
         ),
     )
@@ -173,11 +190,13 @@ def find_open_meeting_attendance(first_name: str, date_str: str):
     Find an 'In Meeting' attendance row with no logout time.
     Returns the record dict or None.
     """
+    safe_name = _sanitize_odata(first_name)
+    safe_date = _sanitize_odata(date_str)
     records = query_records(
         ATTENDANCE_TABLE,
         filter_query=(
-            f"crc6f_firstname eq '{first_name}' "
-            f"and crc6f_date eq '{date_str}' "
+            f"crc6f_firstname eq '{safe_name}' "
+            f"and crc6f_date eq '{safe_date}' "
             f"and crc6f_status eq 'In Meeting' "
             f"and crc6f_logouttime eq null"
         ),
@@ -195,19 +214,22 @@ def update_attendance(record_id: str, updates: dict):
 
 def get_attendance_by_date(date_str: str):
     """Get all attendance records for a given date."""
+    safe_date = _sanitize_odata(date_str)
     return query_records(
         ATTENDANCE_TABLE,
-        filter_query=f"crc6f_date eq '{date_str}'",
+        filter_query=f"crc6f_date eq '{safe_date}'",
     )
 
 
 def get_attendance_by_name_and_date(first_name: str, date_str: str):
     """Get attendance records for a specific user on a given date."""
+    safe_name = _sanitize_odata(first_name)
+    safe_date = _sanitize_odata(date_str)
     return query_records(
         ATTENDANCE_TABLE,
         filter_query=(
-            f"crc6f_firstname eq '{first_name}' "
-            f"and crc6f_date eq '{date_str}'"
+            f"crc6f_firstname eq '{safe_name}' "
+            f"and crc6f_date eq '{safe_date}'"
         ),
     )
 
@@ -217,9 +239,10 @@ def delete_attendance_by_employee(first_name: str):
     Delete ALL attendance records for a given employee.
     Used when an admin deletes an employee.
     """
+    safe_name = _sanitize_odata(first_name)
     records = query_records(
         ATTENDANCE_TABLE,
-        filter_query=f"crc6f_firstname eq '{first_name}'",
+        filter_query=f"crc6f_firstname eq '{safe_name}'",
         select=ATTENDANCE_ID_FIELD,
     )
     for rec in records:

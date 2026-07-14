@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy - FaceAuth</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css', v='10') }}">
+    <style>
+        .policy-container {
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 40px;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+            font-family: 'Inter', -apple-system, sans-serif;
+            line-height: 1.8;
+            color: #334155;
+        }
+        .policy-container h1 { color: #1e293b; font-size: 32px; margin-bottom: 10px; }
+        .policy-container h2 { color: #1a73e8; font-size: 20px; margin-top: 30px; border-bottom: 1px solid #e2e8f0; padding-bottom: 8px; }
+        .policy-container p, .policy-container li { font-size: 15px; }
+        .policy-container ul { padding-left: 24px; }
+        .policy-container ul li { margin-bottom: 8px; }
+        .back-link { display: inline-block; margin-bottom: 30px; color: #1a73e8; text-decoration: none; font-weight: 600; font-size: 14px; }
+        .last-updated { color: #94a3b8; font-size: 13px; margin-bottom: 30px; }
+    </style>
+</head>
+<body style="background: #f8fafc; margin: 0; padding: 20px;">
+    <div class="policy-container">
+        <a href="/" class="back-link">← Back to Home</a>
+        <h1>Privacy Policy</h1>
+        <p class="last-updated">Last Updated: July 2026</p>
+
+        <h2>1. Introduction</h2>
+        <p>FaceAuth ("we", "our", "us") is a biometric attendance management system. This Privacy Policy explains how we collect, use, store, and protect your personal data when you use our application.</p>
+
+        <h2>2. Data We Collect</h2>
+        <p>We collect the minimum personal data necessary for the application to function:</p>
+        <ul>
+            <li><strong>Identity Data:</strong> First name, last name, email address, employee ID</li>
+            <li><strong>Biometric Data:</strong> Facial recognition encoding (a mathematical representation of your facial features, not a photograph)</li>
+            <li><strong>Attendance Data:</strong> Login/logout times, dates, and attendance status</li>
+            <li><strong>Location Data:</strong> GPS coordinates at the time of login/logout (when enabled by your administrator)</li>
+            <li><strong>Device Data:</strong> Browser user agent, screen dimensions, and touch capability (for device-type detection only)</li>
+        </ul>
+
+        <h2>3. How We Use Your Data</h2>
+        <p>Your personal data is used exclusively for:</p>
+        <ul>
+            <li>Verifying your identity through facial recognition during attendance logging</li>
+            <li>Recording attendance (login/logout times and status)</li>
+            <li>Security monitoring (location verification, device restrictions)</li>
+            <li>Account management (password resets, notifications)</li>
+        </ul>
+
+        <h2>4. Data Storage & Security</h2>
+        <p>Your data is stored securely in Microsoft Dataverse with the following protections:</p>
+        <ul>
+            <li>Passwords are hashed using industry-standard PBKDF2 with SHA-256</li>
+            <li>All data transmission uses TLS encryption</li>
+            <li>Session cookies are secured with HttpOnly, Secure, and SameSite attributes</li>
+            <li>Administrative access is restricted to authorized personnel only</li>
+        </ul>
+
+        <h2>5. Data Retention</h2>
+        <p>Your personal data is retained for the duration of your employment or account activity. When your account is deleted by an administrator, all associated attendance records and personal data are permanently removed from the system.</p>
+
+        <h2>6. Your Rights</h2>
+        <p>You have the right to:</p>
+        <ul>
+            <li>Request access to your personal data held by the system</li>
+            <li>Request correction of inaccurate personal data</li>
+            <li>Request deletion of your personal data (via your administrator)</li>
+            <li>Object to specific uses of your personal data</li>
+        </ul>
+        <p>To exercise any of these rights, please contact your system administrator or email the data controller at the address provided by your organization.</p>
+
+        <h2>7. Third-Party Services</h2>
+        <p>We use the following third-party services to operate:</p>
+        <ul>
+            <li><strong>Microsoft Dataverse:</strong> Secure data storage</li>
+            <li><strong>Brevo (Sendinblue):</strong> Transactional email delivery (password resets, notifications)</li>
+            <li><strong>OpenStreetMap Nominatim:</strong> Reverse geocoding for location display (no personal data is sent)</li>
+        </ul>
+
+        <h2>8. Cookies</h2>
+        <p>We use essential cookies only for session management and security. No analytics or marketing cookies are used. By using the application, you consent to the use of these essential cookies required for the system to function.</p>
+
+        <h2>9. Changes to This Policy</h2>
+        <p>We may update this Privacy Policy from time to time. Users will be notified of significant changes through the application.</p>
+
+        <h2>10. Contact</h2>
+        <p>For privacy-related inquiries, please contact your system administrator or the designated data protection contact within your organization.</p>
+    </div>
+</body>
+</html>
