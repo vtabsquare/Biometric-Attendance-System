@@ -78,9 +78,9 @@ if not _flask_secret or _flask_secret == "your-super-secret-key-change-this":
     _flask_secret = secrets.token_hex(32)
 app.secret_key = _flask_secret
 
-# Session cookie security (SameSite=Lax allows top-level navigations for SSO/external flows)
+# Session cookie security (SameSite=None allows cross-site iframe embedding)
 app.config.update(
-    SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_COOKIE_SAMESITE='None',
     SESSION_COOKIE_SECURE=True,
     SESSION_COOKIE_HTTPONLY=True,
     WTF_CSRF_TIME_LIMIT=3600,
