@@ -806,7 +806,7 @@ def process_verification():
                     
                     new_payload = original_claims.copy()
                     new_payload['face_verified'] = True
-                    new_payload['exp'] = datetime.utcnow() + timedelta(hours=1)
+                    new_payload['exp'] = datetime.utcnow() + timedelta(hours=24)
                     
                     new_token = jwt.encode(new_payload, SECRET_KEY, algorithm="HS512")
                     if isinstance(new_token, bytes):

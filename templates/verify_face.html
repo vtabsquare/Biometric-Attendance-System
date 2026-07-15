@@ -230,7 +230,10 @@
             // Send to Backend with device signals (multi-signal for bypass-proof detection)
             fetch('/process_verification', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': '{{ csrf_token() }}'
+                },
                 body: JSON.stringify({ 
                     image: imageData, 
                     mode: mode,
